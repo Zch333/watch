@@ -15,10 +15,15 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
 
 ## 当前状态
 
-- **阶段**：架构基线 + 能力探针 UI（`entry/src/main/js/MainAbility/pages/index/index` 为临时探针入口）。
-- **已完成**：HAP 工程骨架、FUNAR 文档体系、入口页面探针。
-- **进行中**：领域内核、端口契约、提醒能力 GT6 真机探针。
-- **关键限制**：后台提醒在息屏、应用退出、手机断连后的可靠性尚未经 GT6 真机确认；在未获得 `DEVICE_CONFIRMED` 证据前，不得在产品层承诺可靠后台提醒。
+- **阶段**：Phase 1–2、5 已完成（纯领域内核、端口与假适配器、MVU 与产品页面）；Phase 3 真机能力探针待 GT6 设备。
+- **已完成**：
+  - 纯领域内核：值类型/智能构造器、公历代数、日程生成与组合代数、抑制（暂停/跳过）、能力门禁策略、`decide`/`evolve` 纯决策与状态机、快照迁移、确定性动作建议轮换；
+  - 端口契约（clock/calendar/store/reminder/haptics/diagnostic/navigation）与内存假适配器；
+  - 效果解释器 + 命令处理器（Facts 经端口注入 → 纯决策 → 效果解释 → 状态演化）；
+  - MVU 纯投影与消息映射 + 首页/活动提醒/活动/设置/诊断 5 个 Lite JS 页面；
+  - **89 个宿主测试全部通过**（含性质测试、状态机、工作流、端口契约、迁移、UI 更新、架构适应度）。
+- **进行中/待办**：Lite 平台适配器（存储/时钟/振动/提醒）、GT6 真机能力探针、模拟器 UI 验证。
+- **关键限制**：后台提醒在息屏、应用退出、手机断连后的可靠性**尚未经 GT6 真机确认**（证据等级 `UNKNOWN`）；在获得 `DEVICE_CONFIRMED` 证据前，应用如实展示 `Unknown/Unsupported/ApprovalRequired`，不会伪装为“可靠后台已启用”。
 
 ## 技术事实
 
@@ -37,7 +42,14 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
 
 ```text
 entry/                           # 唯一可运行模块
-  src/main/js/MainAbility/       # 当前 UI 与入口能力
+  src/main/js/MainAbility/       # 应用源码（FA + JS）
+    domain/                      # 纯领域内核（零平台依赖）
+    ports/                       # 端口契约
+    adapters/memory/             # 内存/记录假适配器（宿主测试）
+    adapters/ui/                 # 路由器适配器（INFERRED）
+    app/                         # 效果解释器、命令处理器、组合根
+    pages/                       # MVU 核心 + 产品页面
+    tests-host/                  # 宿主测试（node --test）
   src/main/resources/            # 图片、字符串等资源
   src/main/config.json           # 模块配置（bundleName、deviceType 等）
   build-profile.json5            # 模块级构建配置
@@ -72,10 +84,40 @@ code-linter.json5                # Linter 规则
 
 ## 测试
 
-- **领域测试**：在 `tests-host/` 中使用固定时间和内存/记录适配器，覆盖核心规则分支。
-- **契约测试**：每个端口需有真实适配器与假适配器对照。
-- **真机探针**：后台提醒、振动、重启恢复、功耗等行为必须在 GT6 真机验证，模拟器结果不能作为最终证据。
-- 当前目标：核心规则 90% 以上分支覆盖，系统适配器具备契约与真机测试。
+- **宿主测试（不依赖设备）**：运行 `node --test entry/src/main/js/MainAbility/tests-host/*.test.mjs`（Node 18+），当前 89 个用例全部通过。
+  - 调度算法示例与边界（日历 oracle、跨月/闰年、25/5、午休、周末）；
+  - 性质测试（排序、范围、周期间隔、组合代数、抑制单调、对账收敛、暂停归约）；
+  - 状态机与非法迁移、工作流端到端（启用→触发→活动→完成→关闭、部分注册失败与重试、重启恢复）；
+  - 端口契约测试（语义键幂等、部分失败逐项报告、取消一致性、快照并发保护）；
+  - 持久化迁移（JSON 往返、损坏快照显式失败、版本迁移）；
+  - UI 状态更新测试（投影、`TickVisible` 纯重算、消息→命令映射、shell 全流程）；
+  - 架构适应度（FF-01 领域零平台依赖、FF-02 依赖方向、FF-03 无 ArkTS、平台权限白名单）。
+- **契约测试**：每个端口有内存适配器对照套件（`contract.test.mjs`）。
+- **模拟器/真机**：MVU 与页面需在 DevEco 模拟器验证；后台提醒、振动、重启恢复、功耗等行为必须在 GT6 真机验证，模拟器结果不能作为最终证据。
+
+## 能力矩阵（证据等级）
+
+| 能力 | 证据等级 | 当前状态 |
+|---|---|---|
+| 纯领域内核（不依赖设备） | 宿主测试通过 | 已实现 |
+| 端口契约与内存适配器 | 宿主测试通过 | 已实现 |
+| MVU 投影与页面 | INFERRED（待模拟器） | 已实现，待 DevEco 验证 |
+| 页面导航 `@system.router` | INFERRED（Lite 标准 API） | 已实现，待模拟器确认 |
+| 本地存储（Lite storage） | UNKNOWN | 待探针（Probe 0） |
+| 振动（Lite vibrator） | UNKNOWN | 待探针（Probe 0） |
+| 后台提醒：前台触发 | UNKNOWN | 待探针（Probe 2/3） |
+| 后台提醒：表盘/息屏/退出/断连 | UNKNOWN | 待探针（Probe 3） |
+| 后台提醒：重启/免打扰/低电量/容量 | UNKNOWN | 待探针（Probe 3/4） |
+
+证据等级定义：`OFFICIAL_CONFIRMED`（华为官方确认）/ `SDK_CONFIRMED`（当前 SDK 声明中可编译）/ `DEVICE_CONFIRMED`（GT6 真机验证）/ `INFERRED`（须标注，不能作验收依据）/ `UNKNOWN`（须通过探针或工单消除）。
+
+## 已知限制
+
+1. 后台提醒可靠性未获 `DEVICE_CONFIRMED`，不得据此承诺产品级后台行为；当前 UI 如实展示能力状态。
+2. 长期提醒绝不使用 `setInterval`/长 `setTimeout` 承担；倒计时只在页面可见时由 `TickVisible` 从绝对 `endsAt` 重算。
+3. 系统时间手动修改/时区变化后，下次激活执行全量对账；快照损坏时应用显式报错并可由用户重置，不回退默认而不告知。
+4. 页面导航与存储适配器证据等级为 `INFERRED`/`UNKNOWN`，需在 DevEco 模拟器与 GT6 上复核。
+5. `pages/index` 为临时探针页；产品入口为 `pages/home`（列表顺序待发布前调整）。
 
 ## 文档地图
 
