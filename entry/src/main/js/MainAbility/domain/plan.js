@@ -1,0 +1,174 @@
+import { semanticKey } from './values.js';
+
+function pad(value, length) {
+    let text = String(value);
+    while (text.length < length) {
+        text = '0' + text;
+    }
+    return text;
+}
+
+function dateText(date) {
+    return pad(date.year, 4) + '-' + pad(date.month, 2) + '-' + pad(date.day, 2);
+}
+
+function compareDates(left, right) {
+    if (left.year !== right.year) {
+        return left.year - right.year;
+    }
+    if (left.month !== right.month) {
+        return left.month - right.month;
+    }
+    return left.day - right.day;
+}
+
+function compareIntents(left, right) {
+    const dateOrder = compareDates(left.localDate, right.localDate);
+    if (dateOrder !== 0) {
+        return dateOrder;
+    }
+    if (left.at.value !== right.at.value) {
+        return left.at.value - right.at.value;
+    }
+    if (left.key.value < right.key.value) {
+        return -1;
+    }
+    if (left.key.value > right.key.value) {
+        return 1;
+    }
+    return 0;
+}
+
+function compareCanonical(left, right) {
+    if (left.key.value < right.key.value) {
+        return -1;
+    }
+    if (left.key.value > right.key.value) {
+        return 1;
+    }
+    return compareIntents(left, right);
+}
+
+function freezePlan(intents) {
+    return Object.freeze(intents);
+}
+
+function breakStartIntent(date, at, rhythmValue) {
+    const rhythmVersion = rhythmValue.focusMinutes.value + '-' + rhythmValue.breakMinutes.value;
+    const keyText = 'break-start:' + rhythmVersion + ':' + dateText(date) + ':' + at.value;
+    return Object.freeze({
+        tag: 'BreakStart',
+        key: semanticKey(keyText).value,
+        localDate: date,
+        at: at
+    });
+}
+
+function minuteValue(value) {
+    return Object.freeze({ tag: 'MinuteOfDay', value: value });
+}
+
+export function generateBlockPlan(date, block, rhythmValue) {
+    const intents = [];
+    const cycleMinutes = rhythmValue.focusMinutes.value + rhythmValue.breakMinutes.value;
+    let cycleStart = block.start.value;
+
+    while (cycleStart + rhythmValue.focusMinutes.value <= block.end.value) {
+        const breakStart = minuteValue(cycleStart + rhythmValue.focusMinutes.value);
+        intents.push(breakStartIntent(date, breakStart, rhythmValue));
+        cycleStart += cycleMinutes;
+    }
+
+    return freezePlan(intents);
+}
+
+export function combinePlans(left, right) {
+    const candidates = left.concat(right).slice().sort(compareCanonical);
+    const unique = [];
+
+    for (let index = 0; index < candidates.length; index += 1) {
+        const previous = unique.length === 0 ? undefined : unique[unique.length - 1];
+        if (previous === undefined || previous.key.value !== candidates[index].key.value) {
+            unique.push(candidates[index]);
+        }
+    }
+
+    return freezePlan(unique.sort(compareIntents));
+}
+
+export function noPause() {
+    return Object.freeze({ tag: 'NoPause' });
+}
+
+export function pauseThroughLocal(date, minute) {
+    return Object.freeze({ tag: 'PauseThroughLocal', localDate: date, minuteOfDay: minute });
+}
+
+export function noSkip() {
+    return Object.freeze({ tag: 'NoSkip' });
+}
+
+export function skipReminder(key) {
+    return Object.freeze({ tag: 'SkipReminder', reminderKey: key });
+}
+
+function isAtOrBeforePause(intent, pause) {
+    if (pause.tag === 'NoPause') {
+        return false;
+    }
+    const dateOrder = compareDates(intent.localDate, pause.localDate);
+    return dateOrder < 0 || (dateOrder === 0 && intent.at.value <= pause.minuteOfDay.value);
+}
+
+export function applySuppression(plan, pause, skip) {
+    const remaining = [];
+    let skipped = false;
+
+    for (let index = 0; index < plan.length; index += 1) {
+        const intent = plan[index];
+        if (isAtOrBeforePause(intent, pause)) {
+            continue;
+        }
+        if (!skipped && skip.tag === 'SkipReminder' && intent.key.value === skip.reminderKey.value) {
+            skipped = true;
+            continue;
+        }
+        remaining.push(intent);
+    }
+
+    return freezePlan(remaining);
+}
+
+function containsKey(plan, keyValue) {
+    for (let index = 0; index < plan.length; index += 1) {
+        if (plan[index].key.value === keyValue) {
+            return true;
+        }
+    }
+    return false;
+}
+
+export function diffPlans(desiredPlan, registeredPlan) {
+    const desired = combinePlans([], desiredPlan);
+    const registered = combinePlans([], registeredPlan);
+    const toRegister = desired.filter(function (intent) {
+        return !containsKey(registered, intent.key.value);
+    });
+    const toCancel = registered.filter(function (intent) {
+        return !containsKey(desired, intent.key.value);
+    }).map(function (intent) {
+        return intent.key.value;
+    });
+    const unchanged = desired.filter(function (intent) {
+        return containsKey(registered, intent.key.value);
+    }).map(function (intent) {
+        return intent.key.value;
+    });
+
+    return Object.freeze({
+        toRegister: freezePlan(toRegister),
+        toCancel: Object.freeze(toCancel),
+        unchanged: Object.freeze(unchanged)
+    });
+}
+
