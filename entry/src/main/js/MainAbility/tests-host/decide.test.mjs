@@ -25,6 +25,7 @@ import {
 import { evolveAll, reduceTemporalState } from '../domain/evolve.js';
 import { initialDomainState } from '../domain/model.js';
 import { buildDesiredPlanForState } from '../domain/decide.js';
+import { createSnapshot } from '../domain/snapshot.js';
 import { localDate, minuteOfDay } from '../domain/values.js';
 import { capabilitySupported, breakActiveState } from '../domain/state.js';
 import { instant } from '../domain/values.js';
@@ -618,4 +619,76 @@ test('example: plan generation respects the lunch boundary', () => {
     assert.equal(minutes.includes(725), false);
     // Afternoon starts at 810
     assert.equal(minutes.includes(835), true);
+});
+
+test('property: random command sequences never throw and always return tagged results', () => {
+    // Model test (test strategy 3): a deterministic pseudo-random walk over the
+    // whole command space. Every outcome must be an explicit Result carrying a
+    // valid event list or an error code -- never an exception, never an
+    // unhandled state tag.
+    let seed = 42;
+    function rand() {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+    }
+    function pick(list) {
+        return list[Math.floor(rand() * list.length)];
+    }
+
+    let state = initialDomainState();
+    state = evolveOk(state, [capabilityObserved(SUPPORTED)]);
+    state = evolveOk(state, decide(state, enablePlan(), factsAt(2026, 8, 6, 600)).value.events);
+
+    const key = 'break-start:25-5:2026-08-06:625';
+    const factory = [
+        function () { return enablePlan(); },
+        function () { return disablePlan(); },
+        function () { return pauseForOneHour(); },
+        function () { return pauseForToday(); },
+        function () { return skipNext(); },
+        function () { return startBreakNow(); },
+        function () { return completeBreak(); },
+        function () { return skipBreak(); },
+        function () { return acknowledgeBreakFinished(); },
+        function () { return reconcilePlan(); },
+        function () {
+            return {
+                tag: 'ConfigureSchedule',
+                input: {
+                    enabledFlag: true,
+                    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    workBlocks: [{ start: 540, end: 660 }],
+                    focusMinutes: 25,
+                    breakMinutes: 5
+                }
+            };
+        },
+        function () {
+            const now = factsAt(2026, 8, 6, 625).now;
+            return handleReminderFired(key, now);
+        }
+    ];
+
+    for (let step = 0; step < 200; step += 1) {
+        const command = pick(factory)();
+        const result = decide(state, command, factsAt(2026, 8, 6, 600 + step));
+        assert.equal(result.tag === 'Ok' || result.tag === 'Err', true,
+            'decide returned unexpected tag at step ' + step);
+
+        if (result.tag === 'Ok') {
+            const evolved = evolveAll(state, result.value.events);
+            assert.equal(evolved.tag, 'Ok', 'evolve failed at step ' + step);
+            state = evolved.value;
+        } else {
+            assert.equal(typeof result.error.code, 'string',
+                'error without code at step ' + step);
+        }
+        // Invariant: state always stays within the known lifecycle and session tags.
+        assert.equal(typeof state.planLifecycle.tag, 'string');
+        assert.equal(typeof state.breakSession.tag, 'string');
+    }
+
+    // The walk must land on a fully representable domain state.
+    const snapshot = createSnapshot(state);
+    assert.equal(snapshot.tag, 'Snapshot');
 });

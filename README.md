@@ -21,7 +21,7 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
   - 端口契约（clock/calendar/store/reminder/haptics/diagnostic/navigation）与内存假适配器；
   - 效果解释器 + 命令处理器（Facts 经端口注入 → 纯决策 → 效果解释 → 状态演化）；
   - MVU 纯投影与消息映射 + 首页/活动提醒/活动/设置/诊断 5 个 Lite JS 页面；
-  - **102 个宿主测试全部通过**（含性质测试、状态机、工作流、端口契约、迁移、UI 更新、时间边界/时区、架构适应度）。
+  - **103 个宿主测试全部通过**（含性质测试、状态机、随机命令序列模型走查、工作流、端口契约、迁移、UI 更新、时间边界/时区、架构适应度）。
 - **进行中/待办**：Lite 平台适配器（存储/时钟/振动/提醒）、GT6 真机能力探针、模拟器 UI 验证。
 - **关键限制**：后台提醒在息屏、应用退出、手机断连后的可靠性**尚未经 GT6 真机确认**（证据等级 `UNKNOWN`）；在获得 `DEVICE_CONFIRMED` 证据前，应用如实展示 `Unknown/Unsupported/ApprovalRequired`，不会伪装为“可靠后台已启用”。
 
@@ -84,7 +84,7 @@ code-linter.json5                # Linter 规则
 
 ## 测试
 
-- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`（Node 21+ 或支持 glob 展开的 shell），或直接运行 `node --test entry/src/main/js/MainAbility/tests-host/*.test.mjs`（Node 18+）。当前 102 个用例全部通过。
+- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`（Node 21+ 或支持 glob 展开的 shell），或直接运行 `node --test entry/src/main/js/MainAbility/tests-host/*.test.mjs`（Node 18+）。当前 103 个用例全部通过。
   - 调度算法示例与边界（日历 oracle、跨月/闰年、25/5、午休、周末、块长等于工作时长、活动结束恰等于块结束）；
   - 性质测试（排序、范围、周期间隔、组合代数、抑制单调、对账收敛、暂停归约）；
   - 状态机与非法迁移、提醒回调幂等（重复/跨键/禁用后回调不覆盖会话）、工作流端到端（启用→触发→活动→完成→关闭、部分注册失败与重试、重启恢复、时区变化）；
