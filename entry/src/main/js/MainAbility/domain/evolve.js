@@ -1,12 +1,11 @@
 import { domainError, ERROR_CODES } from './errors.js';
 import { withDomainState } from './model.js';
-import { noPause, noSkip, pauseThroughLocal, skipReminder } from './plan.js';
+import { noPause, noSkip, skipReminder } from './plan.js';
 import { err, ok } from './result.js';
 import {
     breakActiveState,
     breakDueState,
     breakFinishedState,
-    completedOutcome,
     expiredOutcome,
     noBreakState,
     planBlockedState,
@@ -22,6 +21,7 @@ function copyState(state, patch) {
 }
 
 /**
+ * evolve : DomainState × DomainEvent -> Result<DomainError, DomainState>
  * Pure state transition on a single domain event.
  */
 export function evolve(state, event) {
@@ -150,12 +150,6 @@ export function evolve(state, event) {
                 revision: state.revision + 1
             }));
 
-        case 'PauseLocalSet':
-            return ok(copyState(state, {
-                pause: pauseThroughLocal(event.localDate, event.minuteOfDay),
-                revision: state.revision + 1
-            }));
-
         default:
             return err(domainError(ERROR_CODES.UNKNOWN_EVENT, event.tag));
     }
@@ -175,46 +169,27 @@ export function evolveAll(state, events) {
 }
 
 /**
- * Reduce expired active break / pause using absolute time facts.
- * Pure: now and local wall time must be provided.
+ * Startup reduction: expire finished active sessions and past pauses using
+ * absolute time facts. Pure: `now` is provided, never read.
  */
-export function reduceTemporalState(state, now, localWall) {
+export function reduceTemporalState(state, now) {
     const events = [];
     const session = state.breakSession;
 
-    if (session.tag === 'Active' && now.epochMilliseconds >= session.endsAt.epochMilliseconds) {
-        events.push({
+    if (session && session.tag === 'Active' &&
+        now.epochMilliseconds >= session.endsAt.epochMilliseconds) {
+        events.push(Object.freeze({
             tag: 'BreakFinished',
             sessionId: session.sessionId,
             finishedAt: now,
             outcome: expiredOutcome()
-        });
+        }));
     }
 
-    if (state.planLifecycle.tag === 'Paused' && state.planLifecycle.until &&
+    if (state.planLifecycle && state.planLifecycle.tag === 'Paused' &&
+        state.planLifecycle.until &&
         now.epochMilliseconds >= state.planLifecycle.until.epochMilliseconds) {
-        events.push({ tag: 'PlanResumed' });
-    }
-
-    if (state.pause.tag === 'PauseThroughLocal' && localWall) {
-        const dateOrder = (function () {
-            const left = state.pause.localDate;
-            const right = localWall.localDate;
-            if (left.year !== right.year) {
-                return left.year - right.year;
-            }
-            if (left.month !== right.month) {
-                return left.month - right.month;
-            }
-            return left.day - right.day;
-        })();
-        if (dateOrder < 0 ||
-            (dateOrder === 0 && state.pause.minuteOfDay.value < localWall.minuteOfDay.value)) {
-            // pause already in the past relative to wall clock — clear via resume path if paused
-            if (state.planLifecycle.tag === 'Paused') {
-                // already handled by until instant if present; still clear local pause marker
-            }
-        }
+        events.push(Object.freeze({ tag: 'PlanResumed' }));
     }
 
     if (events.length === 0) {
@@ -222,6 +197,3 @@ export function reduceTemporalState(state, now, localWall) {
     }
     return evolveAll(state, events);
 }
-
-// silence unused import warnings for completedOutcome if tree-shaken
-void completedOutcome;

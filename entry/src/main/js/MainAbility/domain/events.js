@@ -6,6 +6,10 @@ export function scheduleConfigured(settings) {
     return event('ScheduleConfigured', { settings: settings });
 }
 
+export function planEnableRequested() {
+    return event('PlanEnableRequested');
+}
+
 export function planEnabled() {
     return event('PlanEnabled');
 }
@@ -14,8 +18,16 @@ export function planDisabled() {
     return event('PlanDisabled');
 }
 
-export function planPaused(until) {
-    return event('PlanPaused', { until: until });
+export function planPaused(until, pause) {
+    return event('PlanPaused', { until: until, pause: pause });
+}
+
+export function planResumed() {
+    return event('PlanResumed');
+}
+
+export function planBlocked(error) {
+    return event('PlanBlocked', { error: error });
 }
 
 export function nextReminderSkipped(reminderKey) {
@@ -26,12 +38,13 @@ export function breakBecameDue(reminderKey, dueAt) {
     return event('BreakBecameDue', { reminderKey: reminderKey, dueAt: dueAt });
 }
 
-export function breakStarted(sessionId, startedAt, endsAt, guidanceId) {
+export function breakStarted(sessionId, startedAt, endsAt, guidanceId, nextGuidanceIndex) {
     return event('BreakStarted', {
         sessionId: sessionId,
         startedAt: startedAt,
         endsAt: endsAt,
-        guidanceId: guidanceId
+        guidanceId: guidanceId,
+        nextGuidanceIndex: nextGuidanceIndex
     });
 }
 

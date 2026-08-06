@@ -169,18 +169,19 @@ export function migrateSnapshot(raw) {
 
     // Future: while (version < CURRENT) { raw = migrateStep(raw, version); version += 1; }
     if (version === 1) {
-        const settingsResult = raw.settings && raw.settings.tag === 'ScheduleSettings'
-            ? ok(raw.settings)
-            : scheduleSettings(raw.settings || initialDomainState().settings);
-        // If already a full ScheduleSettings record, accept; else try reconstruct
-        let settings = raw.settings;
-        if (!settings || settings.tag !== 'ScheduleSettings') {
-            // Fall back to defaults rather than half-parsed corruption
-            if (settingsResult.tag === 'Ok' && settingsResult.value.tag === 'ScheduleSettings') {
-                settings = settingsResult.value;
-            } else {
-                settings = initialDomainState().settings;
+        let settings;
+        if (raw.settings && raw.settings.tag === 'ScheduleSettings') {
+            settings = raw.settings;
+        } else if (raw.settings && typeof raw.settings === 'object') {
+            const parsed = scheduleSettings(raw.settings);
+            if (parsed.tag === 'Err') {
+                return parsed;
             }
+            settings = parsed.value;
+        } else {
+            return err(domainError(ERROR_CODES.INVALID_SNAPSHOT, Object.freeze({
+                reason: 'missing_settings'
+            })));
         }
 
         const snapshot = Object.freeze({
@@ -227,4 +228,12 @@ export function rehydrateFromRaw(raw) {
         return migrated;
     }
     return ok(stateFromSnapshot(migrated.value));
+}
+
+/**
+ * Explicit reset: fresh defaults with schemaVersion. Use when the stored
+ * snapshot is corrupt and the user chose to reset.
+ */
+export function freshSnapshot() {
+    return createSnapshot(initialDomainState());
 }

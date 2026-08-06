@@ -54,11 +54,11 @@ export function observeCapability(capability) {
     return command('ObserveCapability', { capability: capability });
 }
 
-export function pauseForOneHour(nowInstant) {
-    return command('PauseForOneHour', { now: nowInstant });
+export function pauseForOneHour() {
+    return command('PauseForOneHour');
 }
 
-export function pauseForToday(endOfDayInstant) {
-    return command('PauseForToday', { until: endOfDayInstant });
+export function pauseForToday() {
+    return command('PauseForToday');
 }
 
