@@ -27,3 +27,16 @@ export function actionLabels(keys) {
     }
     return out;
 }
+
+/**
+ * First error text for the page error slot (≤2 lines on the round screen).
+ * Falls back from text to code to a generic phrase so a failure is always
+ * visible, never a dead button.
+ */
+export function firstErrorText(errors) {
+    const list = errors || [];
+    if (list.length === 0) {
+        return '';
+    }
+    return list[0].text || list[0].code || '操作失败';
+}
