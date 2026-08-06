@@ -11,6 +11,7 @@ import { ok } from '../../domain/result.js';
 
 const ROUTE_TO_URI = {
     'home': 'pages/home/index',
+    'more': 'pages/more/index',
     'break-due': 'pages/break-due/index',
     'break-active': 'pages/break-active/index',
     'settings': 'pages/settings/index',

@@ -4,10 +4,6 @@
     <text class="next">下次活动 {{nextBreak}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
     <button class="btn primary" onclick="onStartNow">立即活动</button>
-    <button class="btn" onclick="onPauseToday">暂停今天</button>
-    <button class="btn" onclick="onPauseHour">暂停一小时</button>
-    <button class="btn" onclick="onSkipNext">跳过下一次</button>
     <button class="btn" onclick="onToggle">启用 / 关闭</button>
-    <button class="btn" onclick="onSettings">设置</button>
-    <button class="btn" onclick="onDiagnostics">诊断</button>
+    <button class="btn" onclick="onMore">更多</button>
 </div>

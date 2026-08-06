@@ -14,7 +14,7 @@ import { createRecordingNavigation } from '../adapters/memory/recording-navigati
 import { instant } from '../domain/values.js';
 import { capabilitySupported } from '../domain/state.js';
 import { ok } from '../domain/result.js';
-import { initApp, initDeviceApp, getModel } from '../pages/_app-shell.js';
+import { initApp, initDeviceApp, dispatch, refresh, getModel, getState } from '../pages/_app-shell.js';
 
 function inst(ms) {
     const result = instant(ms);
@@ -149,4 +149,35 @@ test('runtime/shell: initDeviceApp without a factory is explicit', () => {
     const model = initDeviceApp();
     assert.equal(model.errors.length > 0, true);
     assert.equal(model.errors[0].code, 'DEVICE_FACTORY_MISSING');
+});
+
+test('runtime/shell: refresh settles an expired active session and persists it', () => {
+    const clock = createFixedClock(inst(600 * 60000)); // 2026-08-06 10:00 UTC+8
+    const store = createMemoryStore();
+    initApp({
+        clock: clock,
+        store: store,
+        capability: capabilitySupported({ maxPendingCount: 30 })
+    });
+
+    dispatch({ tag: 'StartNowPressed' }); // break now: 5 minutes
+    assert.equal(getState().breakSession.tag, 'Active');
+
+    // Nothing changed yet: a refresh right away must not persist or reduce.
+    refresh();
+    assert.equal(getState().breakSession.tag, 'Active');
+
+    // Time passes while the page is hidden; the next visible refresh settles
+    // the expired session and persists the final state.
+    clock.advance(6 * 60 * 1000);
+    refresh();
+    assert.equal(getState().breakSession.tag, 'Finished');
+    assert.equal(getState().breakSession.outcome.tag, 'Expired');
+    assert.equal(getModel().breakStatus, 'Finished');
+
+    const saved = store.loadSnapshot();
+    assert.equal(saved.tag, 'Ok');
+    assert.equal(saved.value.tag, 'Some');
+    assert.equal(saved.value.value.breakSession.tag, 'Finished');
+    assert.equal(saved.value.value.breakSession.outcome.tag, 'Expired');
 });

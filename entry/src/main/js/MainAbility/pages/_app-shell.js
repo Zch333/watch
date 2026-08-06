@@ -1,5 +1,7 @@
 import { createHostApp } from '../app/composition-root.js';
 import { observeCapability } from '../domain/commands.js';
+import { createSnapshot } from '../domain/snapshot.js';
+import { reduceTemporalState } from '../domain/evolve.js';
 import { initialUiModel, projectModel } from './mvu/model.js';
 import { update as pureUpdate } from './mvu/update.js';
 
@@ -111,6 +113,8 @@ export function dispatch(msg) {
         if (result.tag === 'Ok') {
             state = result.state;
             if (result.facts) {
+                // A successful command clears stale failure notices; errors
+                // survive ordinary page re-renders via refresh().
                 model = projectModel(state, result.facts);
             }
         } else {
@@ -129,19 +133,41 @@ export function refresh() {
         return model;
     }
     const clockResult = app.ports.clock.now();
-    if (clockResult.tag === 'Ok') {
-        const offset = app.ports.calendar.utcOffset(clockResult.value);
-        if (offset.tag === 'Ok') {
-            const wall = app.ports.calendar.localWall(clockResult.value, offset.value);
-            if (wall.tag === 'Ok') {
-                model = projectModel(state, {
-                    now: clockResult.value,
-                    localWall: wall.value,
-                    utcOffsetMinutes: offset.value,
-                    registeredPlan: [],
-                    horizonDays: 3
-                });
-            }
+    if (clockResult.tag === 'Err') {
+        return model;
+    }
+
+    // Temporal reduction on page visibility: an expired break session or
+    // pause is settled now instead of waiting for the next command. Pure
+    // reduction; the snapshot is persisted only when something changed.
+    // The store is optimistic-concurrency: pass the pre-reduction revision
+    // (the last persisted one), exactly like the command handler does.
+    const baseRevision = state.revision;
+    const reduced = reduceTemporalState(state, clockResult.value);
+    if (reduced.tag === 'Ok' && reduced.value !== state) {
+        state = reduced.value;
+        const persist = app.ports.store.saveSnapshot(baseRevision, createSnapshot(state));
+        if (persist.tag === 'Err') {
+            app.ports.diagnostics.append(Object.freeze({
+                tag: 'EffectFailed',
+                effect: 'PersistSnapshot',
+                code: persist.error.code,
+                at: clockResult.value
+            }));
+        }
+    }
+
+    const offset = app.ports.calendar.utcOffset(clockResult.value);
+    if (offset.tag === 'Ok') {
+        const wall = app.ports.calendar.localWall(clockResult.value, offset.value);
+        if (wall.tag === 'Ok') {
+            model = projectModel(state, {
+                now: clockResult.value,
+                localWall: wall.value,
+                utcOffsetMinutes: offset.value,
+                registeredPlan: [],
+                horizonDays: 3
+            }, model.errors);
         }
     }
     return model;

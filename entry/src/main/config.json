@@ -33,6 +33,7 @@
         "pages": [
           "pages/index/index",
           "pages/home/index",
+          "pages/more/index",
           "pages/break-due/index",
           "pages/break-active/index",
           "pages/settings/index",

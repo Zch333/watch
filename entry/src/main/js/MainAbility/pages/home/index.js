@@ -12,6 +12,11 @@ function statusText(tag) {
     return map[tag] || tag;
 }
 
+/**
+ * Home keeps only the primary actions that fit the 466px round screen:
+ * start now, toggle, and the More page. Pause/skip/settings/diagnostics
+ * live on pages/more (scrollable list).
+ */
 export default {
     data: {
         capabilityText: '提醒能力未确认',
@@ -40,18 +45,6 @@ export default {
         dispatch({ tag: 'StartNowPressed' });
         this.render();
     },
-    onPauseToday() {
-        dispatch({ tag: 'PauseTodayPressed' });
-        this.render();
-    },
-    onPauseHour() {
-        dispatch({ tag: 'PauseOneHourPressed' });
-        this.render();
-    },
-    onSkipNext() {
-        dispatch({ tag: 'SkipNextPressed' });
-        this.render();
-    },
     onToggle() {
         const model = refresh();
         if (model.planStatus === 'Enabled' || model.planStatus === 'Paused') {
@@ -61,10 +54,7 @@ export default {
         }
         this.render();
     },
-    onSettings() {
-        navigateTo('settings');
-    },
-    onDiagnostics() {
-        navigateTo('diagnostics');
+    onMore() {
+        navigateTo('more');
     }
 };

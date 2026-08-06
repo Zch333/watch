@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { initApp, dispatch, getModel } from '../pages/_app-shell.js';
+import { initApp, dispatch, refresh, getModel } from '../pages/_app-shell.js';
 import { update } from '../pages/mvu/update.js';
-import { initialUiModel } from '../pages/mvu/model.js';
+import { initialUiModel, projectModel } from '../pages/mvu/model.js';
 import { actionLabels } from '../pages/mvu/labels.js';
+import { initialDomainState } from '../domain/model.js';
 import { localToInstant } from '../domain/calendar.js';
 import { localDate, minuteOfDay } from '../domain/values.js';
 import { capabilitySupported } from '../domain/state.js';
@@ -90,4 +91,50 @@ test('settings: custom rhythm and weekend selections restore correctly', async (
     assert.equal(page.selectedRhythm, 1, '50/10 preset is index 1');
     assert.deepEqual(page.weekdayOn, [true, false, true, false, true, true, false]);
     assert.equal(page.enabledFlag, false);
+});
+
+test('mvu: projectModel carries shell errors instead of wiping them', () => {
+    const state = initialDomainState();
+    const carried = Object.freeze([{ text: '操作失败', code: 'REMINDER_LIST_UNAVAILABLE' }]);
+    const model = projectModel(state, {}, carried);
+    assert.equal(model.errors.length, 1);
+    assert.equal(model.errors[0].code, 'REMINDER_LIST_UNAVAILABLE');
+    // Without carried errors the projection stays empty (fresh boot/success).
+    assert.equal(projectModel(state, {}).errors.length, 0);
+});
+
+test('shell: a failed command error survives refresh and clears on the next success', () => {
+    initApp({ instant: at(2026, 8, 6, 600), utcOffsetMinutes: OFFSET, capability: SUPPORTED });
+    // Invalid settings input: configureSchedule fails, error lands on the model.
+    dispatch({
+        tag: 'SettingsSaved',
+        raw: { enabledFlag: true, weekdays: [], workBlocks: [], focusMinutes: 0, breakMinutes: 0 }
+    });
+    assert.equal(getModel().errors.length > 0, true);
+    const failedCode = getModel().errors[0].code;
+
+    // A plain re-render must keep the error visible.
+    refresh();
+    assert.equal(getModel().errors.length, 1);
+    assert.equal(getModel().errors[0].code, failedCode);
+
+    // The next successful command clears the stale failure notice.
+    dispatch({ tag: 'EnablePressed' });
+    assert.equal(getModel().errors.length, 0);
+    assert.equal(getModel().planStatus, 'Enabled');
+});
+
+test('more: secondary actions dispatch through the MVU pipeline', async () => {
+    initApp({ instant: at(2026, 8, 6, 600), utcOffsetMinutes: OFFSET, capability: SUPPORTED });
+    dispatch({ tag: 'EnablePressed' });
+    assert.equal(getModel().planStatus, 'Enabled');
+
+    const page = (await import('../pages/more/index.js')).default;
+    page.onPauseToday();
+    assert.equal(getModel().planStatus, 'Paused');
+    assert.equal(getModel().errors.length, 0);
+
+    page.onSettings();
+    page.onDiagnostics();
+    assert.equal(getModel().errors.length, 0);
 });

@@ -99,8 +99,14 @@ function settingsSummaryFor(settings) {
 
 /**
  * Project domain state into the view model using explicit facts.
+ *
+ * `errors` is a carried-in parameter, not something the projection owns:
+ * shell-recorded failures (a failed command, a boot error) must survive
+ * re-renders. The shell passes the current model's errors on refresh and
+ * lets them clear after the next successful command. The function stays
+ * pure: same (state, facts, errors) always projects identically.
  */
-export function projectModel(state, facts) {
+export function projectModel(state, facts, errors) {
     let nextBreakText = '—';
     if (facts && facts.localWall) {
         const desired = buildDesiredPlanForState(state, facts);
@@ -139,7 +145,7 @@ export function projectModel(state, facts) {
         breakOutcome: breakOutcome,
         dueReminderKey: dueReminderKey,
         settingsSummary: settingsSummaryFor(state.settings),
-        errors: Object.freeze([]),
+        errors: Object.freeze((errors || []).slice()),
         isBusy: false
     });
 }
