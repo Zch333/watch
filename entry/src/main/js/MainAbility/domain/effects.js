@@ -2,14 +2,6 @@ function effect(tag, fields) {
     return Object.freeze(Object.assign({ tag: tag }, fields || {}));
 }
 
-export function persistSnapshot(snapshot) {
-    return effect('PersistSnapshot', { snapshot: snapshot });
-}
-
-export function queryRegisteredReminders(namespace) {
-    return effect('QueryRegisteredReminders', { namespace: namespace || 'move25' });
-}
-
 export function registerReminders(intents) {
     return effect('RegisterReminders', { intents: Object.freeze((intents || []).slice()) });
 }

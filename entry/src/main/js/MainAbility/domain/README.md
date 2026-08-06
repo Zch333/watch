@@ -28,7 +28,8 @@
 | `decide.js` | 纯决策函数 `decide : State × Command × Facts -> Result<Decision>`，返回事件 + 效果描述 |
 | `evolve.js` | 纯状态转换 `evolve : State × Event -> Result<State>`、`reduceTemporalState`（启动归约过期会话/暂停） |
 | `snapshot.js` | 快照创建、`migrateSnapshot`（纯迁移，损坏显式失败）、`rehydrateFromRaw`、`freshSnapshot` |
-| `effects.js` | 效果 ADT：`PersistSnapshot`/`QueryRegisteredReminders`/`RegisterReminders`/`CancelReminders`/`Vibrate`/`Navigate`/`EmitDiagnostic` |
+| `effects.js` | 效果 ADT：`RegisterReminders`/`CancelReminders`/`Vibrate`/`Navigate`/`EmitDiagnostic`（持久化不是效果：由命令处理器在结算后直接持久化最终状态） |
+| `settle.js` | 纯结算：`settlePlanLifecycle` 依据注册结果门禁 `PlanEnabled`（全失败→`PlanBlocked`、部分失败→保持 `Enabling`、成功→`Enabled`） |
 | `commands.js`/`events.js` | 命令与事件工厂（带 `tag` 的不可变记录） |
 | `state.js` | 计划生命周期、活动会话、能力状态的构造器 |
 | `model.js` | `initialDomainState` / `withDomainState` 聚合状态 |

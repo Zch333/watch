@@ -1,5 +1,5 @@
 import { enumerateDates, instantToLocal, localToInstant } from './calendar.js';
-import { cancelReminders, decision, emitDiagnostic, navigate, persistSnapshot, registerReminders, vibrate } from './effects.js';
+import { cancelReminders, decision, emitDiagnostic, navigate, registerReminders, vibrate } from './effects.js';
 import { domainError, ERROR_CODES } from './errors.js';
 import {
     breakAcknowledged,
@@ -32,7 +32,6 @@ import {
 } from './plan.js';
 import { err, ok } from './result.js';
 import { parseScheduleInput } from './settings.js';
-import { createSnapshot } from './snapshot.js';
 import { completedOutcome } from './state.js';
 import { evolveAll } from './evolve.js';
 import { instant } from './values.js';
@@ -102,30 +101,30 @@ function reconcileEffects(state, facts, extraEvents) {
     const registered = facts.registeredPlan || emptyPlan();
     const diff = diffPlans(desired, registered);
     const events = (extraEvents || []).concat([planReconciled(diff)]);
+    // Events must be evolvable in isolation; the shell persists the final
+    // state after it settles lifecycle events against effect results.
     const evolved = evolveAll(state, events);
     if (evolved.tag === 'Err') {
         return evolved;
     }
     const effects = [
         cancelReminders(diff.toCancel),
-        registerReminders(diff.toRegister),
-        persistSnapshot(createSnapshot(evolved.value))
+        registerReminders(diff.toRegister)
     ];
     return ok(decision(events, effects));
 }
 
 /**
- * Build a decision whose persisted snapshot reflects the events already
- * applied, so stored state never lags the decision's own events.
+ * Build a decision for commands that only produce events and effects.
+ * Persistence is owned by the imperative shell (it must reflect the final,
+ * settled state), so no PersistSnapshot effect is emitted here.
  */
 function decideSnapshot(state, events, extraEffects) {
     const evolved = evolveAll(state, events || []);
     if (evolved.tag === 'Err') {
         return evolved;
     }
-    return ok(decision(events || [], (extraEffects || []).concat([
-        persistSnapshot(createSnapshot(evolved.value))
-    ])));
+    return ok(decision(events || [], extraEffects || []));
 }
 
 /**
