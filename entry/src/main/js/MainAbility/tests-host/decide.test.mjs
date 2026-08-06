@@ -523,7 +523,6 @@ test('example: start break from due creates an active session ending at +5 minut
     const fired = factsAt(2026, 8, 6, 625);
     const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
     state = evolveOk(state, due.value.events);
-
     const startResult = decide(state, startBreak('break-start:25-5:2026-08-06:625'), factsAt(2026, 8, 6, 625));
     assert.equal(startResult.tag, 'Ok');
     const startedEvent = startResult.value.events[0];
@@ -535,6 +534,39 @@ test('example: start break from due creates an active session ending at +5 minut
     assert.equal(applied.breakSession.guidanceId, 'stand-walk-eyes');
     assert.equal(applied.guidanceIndex, 1);
     assert.equal(applied.skip.tag, 'NoSkip');
+});
+
+test('example: acknowledging a due prompt does not vibrate a second time', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    // The reminder alert itself vibrates once.
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    assert.equal(due.value.effects.some(function (e) {
+        return e.tag === 'Vibrate' && e.pattern === 'BreakStart';
+    }), true);
+    state = evolveOk(state, due.value.events);
+
+    // Tapping start on the prompt is an acknowledgment: no second cue.
+    const start = decide(state, startBreak('break-start:25-5:2026-08-06:625'), factsAt(2026, 8, 6, 625));
+    assert.equal(start.tag, 'Ok');
+    assert.equal(start.value.effects.some(function (e) {
+        return e.tag === 'Vibrate';
+    }), false);
+    assert.equal(start.value.effects.some(function (e) {
+        return e.tag === 'Navigate' && e.route === 'break-active';
+    }), true);
+});
+
+test('example: starting a break now from home vibrates once as immediate feedback', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    const result = decide(state, startBreakNow(), factsAt(2026, 8, 6, 600));
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.effects.some(function (e) {
+        return e.tag === 'Vibrate' && e.pattern === 'BreakStart';
+    }), true);
+    assert.equal(result.value.effects.some(function (e) {
+        return e.tag === 'Navigate' && e.route === 'break-active';
+    }), true);
 });
 
 test('example: guidance rotates deterministically across sessions', () => {

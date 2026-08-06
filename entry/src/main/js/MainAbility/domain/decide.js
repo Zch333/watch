@@ -394,7 +394,9 @@ export function decide(state, command, facts) {
                     command: command.tag
                 })));
             }
-            return startActiveBreak(state, factsValue, state.breakSession.reminderKey);
+            // Acknowledged start: the reminder alert already vibrated when the
+            // prompt appeared; vibrating again would double the BreakStart cue.
+            return startActiveBreak(state, factsValue, state.breakSession.reminderKey, true);
         }
 
         case 'StartBreakNow': {
@@ -404,7 +406,7 @@ export function decide(state, command, facts) {
                     command: command.tag
                 })));
             }
-            return startActiveBreak(state, factsValue, undefined);
+            return startActiveBreak(state, factsValue, undefined, false);
         }
 
         case 'CompleteBreak': {
@@ -486,7 +488,12 @@ export function decide(state, command, facts) {
     }
 }
 
-function startActiveBreak(state, factsValue, reminderKey) {
+/**
+ * Start an active break session. `acknowledged` means the user is answering
+ * a prompt that already vibrated (StartBreak from Due): no second BreakStart
+ * cue. Self-initiated starts (StartBreakNow) vibrate as immediate feedback.
+ */
+function startActiveBreak(state, factsValue, reminderKey, acknowledged) {
     const nowResult = missingFact(factsValue, 'now');
     if (nowResult.tag === 'Err') {
         return nowResult;
@@ -499,6 +506,9 @@ function startActiveBreak(state, factsValue, reminderKey) {
     }
     const selected = selectNextGuidance(state.guidanceIndex);
     const sessionId = 'break-' + now.epochMilliseconds;
+    const effects = acknowledged
+        ? [navigate('break-active')]
+        : [vibrate('BreakStart'), navigate('break-active')];
     return decideSnapshot(state, [
         breakStarted(
             sessionId,
@@ -507,10 +517,7 @@ function startActiveBreak(state, factsValue, reminderKey) {
             selected.guidance.id,
             selected.nextIndex
         )
-    ], [
-        vibrate('BreakStart'),
-        navigate('break-active')
-    ]);
+    ], effects);
 }
 
 /**
