@@ -25,6 +25,7 @@ https://github.com/Zch333/watch.git
 
 ## 二、开始前必须执行
 
+0. **必须参考`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者.html`&`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者_files`**
 1. 阅读仓库根目录 `CLAUDE.md`/`AGENTS.md`/`README.md`。
 2. 阅读：
    - `docs/move25_gt6_funar_docs/00_ARCHITECTURE_CHARTER.md`

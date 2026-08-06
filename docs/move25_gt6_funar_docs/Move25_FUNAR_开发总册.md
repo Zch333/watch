@@ -30,6 +30,8 @@ Move25 的业务看似简单，但包含一个决定成败的技术不确定性�
 
 > **不可变数据描述事实；纯函数产生决策；工作流组合函数；端口描述效果；适配器解释效果；系统能力以数据进入领域，而不是以隐式全局依赖渗入领域。**
 
+> **必须参考`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者.html`&`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者_files`**
+
 ## 3. 项目架构定位
 
 - **部署形态**：一个 Lite Wearable HAP；不是微服务。
@@ -54,6 +56,7 @@ Move25 的业务看似简单，但包含一个决定成败的技术不确定性�
 
 ## 5. 推荐阅读顺序
 
+0. **`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者.html`**
 1. `00_ARCHITECTURE_CHARTER.md`
 2. `product/01_PRODUCT_VISION_AND_QUALITY_ATTRIBUTES.md`
 3. `domain/03_UBIQUITOUS_LANGUAGE.md`

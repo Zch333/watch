@@ -23,12 +23,14 @@ now() -> Result<ClockError, Instant>
 ## 3. `CalendarPort`
 
 ```text
-today(instant) -> LocalDate
-weekday(localDate) -> Weekday
-resolve(localDate, minuteOfDay) -> Result<TimeResolutionError, Instant>
+utcOffset(instant) -> Result<CalendarError, utcOffsetMinutes>
+localWall(instant, utcOffsetMinutes) -> Result<CalendarError, LocalWallTime>
+resolve(localDate, minuteOfDay) -> Result<CalendarError, Instant>
 ```
 
-处理时区、非法本地时间和系统时间变化。
+- `LocalWallTime = { localDate: LocalDate, minuteOfDay: MinuteOfDay }`；
+- `resolve` 把"本地日历时间"逐条换算为绝对 `Instant`——跨 DST 边界时每个未来日期单独解析（不能用单一当前偏移）；
+- 处理时区、非法本地时间和系统时间变化。领域只见值，不见平台。
 
 ## 4. `SettingsStorePort`
 
@@ -41,22 +43,26 @@ saveSnapshot(expectedRevision, snapshot) -> Result<StoreError, Revision>
 - 保存必须是完整快照或可验证的原子替换；
 - 适配器负责序列化，领域不接触 JSON 字符串。
 
-## 5. `ReminderSchedulerPort`
+## 5. `ReminderSchedulerPort/v2`
 
 ```text
 probeCapabilities() -> Result<ReminderError, ReminderCapability>
 listRegistered(namespace) -> Result<ReminderError, RegisteredReminder[]>
-register(intents) -> Result<ReminderError, RegistrationReport>
+register(request) -> Result<ReminderError, RegistrationReport>
 cancel(keys) -> Result<ReminderError, CancellationReport>
 ```
 
-契约要求：
+`register(request)`，`request = { intents, recurrenceRules, ruleExceptions, now, expandDays }`：
 
-- 每个意图按语义键幂等；
-- 部分成功必须逐项报告；
-- 返回系统 ID 与语义键映射；
-- 不保证能力的字段必须返回 `Unknown`，不能猜测；
-- 适配器不得通过 JavaScript 长计时器实现。
+- **一次性模式**（`recurrenceRules` 为空）：每个意图按语义键幂等注册，按意图绝对 `dueAt` 调度；`ruleExceptions` 忽略。
+- **规则模式**（`recurrenceRules` 非空）：每个周规则 **一个系统注册**，以规则的稳定 `ruleKey` 为身份（如 `recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri`）；**不得**按具体日期逐个注册。同 ruleKey 重注册幂等且系统 ID 稳定；**规则集整组替换**——不在新集合内的旧规则必须被移除（重配置不得泄漏过期周规则）；声明 `supportsRecurring` 的适配器不得静默忽略规则并报成功。
+- `ruleExceptions: [{ ruleKey, occurrenceDate, action: 'skip'|'pause' }]`：发生次级抑制。适配器对该规则的该日期不得触发、不得出现在注册视图中；每次 register 整组替换（领域总是发送当前完整抑制状态）。
+- `listRegistered` 在规则模式下返回**发生次视图**：规则在 `expandDays` 窗口内物化的具体意图（按日经日历逐条解析——周规则以本地日历时间为准，DST 不搬移；仅未来；应用例外）。
+- **回调映射**：规则触发时，适配器以具体语义键上报 `break-start:<rhythmVersion>:<YYYY-MM-DD>:<minuteOfDay>`（取发生日的本地日历日期）。领域按规则模板 + 当前抑制校验回调有效性。
+- `cancel(keys)` 接受当前注册身份：一次性模式为语义键，规则模式为 ruleKey；规则模式下取消具体发生键报 missing（发生次不单独注册）。
+- 结算按注册主体对齐：`RegistrationReport.failed` 在一次性模式携带 `key`、规则模式携带 `ruleKey`（Partial 按规则数判定）。
+- 部分成功必须逐项报告；返回系统 ID 与身份映射。
+- 不保证能力的字段必须返回 `Unknown`，不能猜测；适配器不得通过 JavaScript 长计时器实现。
 
 ## 6. `HapticsPort`
 
@@ -77,4 +83,4 @@ readRecent(limit) -> Result<DiagnosticError, Entry[]>
 
 ## 8. 契约版本
 
-每个端口有显式版本，例如 `ReminderSchedulerPort/v1`。适配器升级时，优先保持端口不变；确需改变语义时新增版本并记录 ADR。
+每个端口有显式版本，例如 `ReminderSchedulerPort/v2`。适配器升级时，优先保持端口不变；确需改变语义时新增版本并记录 ADR。`ReminderSchedulerPort/v1`（`register({ intents, recurrenceRules })`，按意图注册）已被 v2 取代；一次性模式语义与 v1 兼容。

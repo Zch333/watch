@@ -1,5 +1,5 @@
 import { compareLocalDates, localToInstant, weekdayOf } from './calendar.js';
-import { semanticKey } from './values.js';
+import { localDate, semanticKey } from './values.js';
 import { err, ok } from './result.js';
 import { domainError, ERROR_CODES } from './errors.js';
 
@@ -74,6 +74,52 @@ function breakStartIntent(date, at, rhythmValue) {
 
 function minuteValue(value) {
     return Object.freeze({ tag: 'MinuteOfDay', value: value });
+}
+
+const BREAK_START_PREFIX = 'break-start:';
+
+/**
+ * Parse a concrete semantic key back into its parts:
+ *   'break-start:<rhythmVersion>:<YYYY-MM-DD>:<minuteOfDay>'
+ * Returns { rhythmVersion, localDate, minuteOfDay } or null for any key that
+ * is not a break-start key with the canonical shape. Pure string grammar;
+ * this is what ties a weekly-rule occurrence (adapter callback) back to the
+ * concrete plan identity (review P1-01: callback mapping must be defined).
+ */
+export function parseBreakStartKey(keyValue) {
+    if (typeof keyValue !== 'string' || keyValue.indexOf(BREAK_START_PREFIX) !== 0) {
+        return null;
+    }
+    const rest = keyValue.slice(BREAK_START_PREFIX.length);
+    const parts = rest.split(':');
+    if (parts.length !== 3) {
+        return null;
+    }
+    const rhythmVersion = parts[0];
+    const dateParts = parts[1].split('-');
+    if (dateParts.length !== 3) {
+        return null;
+    }
+    const year = Number(dateParts[0]);
+    const month = Number(dateParts[1]);
+    const day = Number(dateParts[2]);
+    const minuteValue = Number(parts[2]);
+    // Same integer idiom as values.js: % 1 === 0, no Number.isInteger (Lite JS).
+    if (typeof year !== 'number' || year % 1 !== 0 ||
+        typeof month !== 'number' || month % 1 !== 0 ||
+        typeof day !== 'number' || day % 1 !== 0 ||
+        typeof minuteValue !== 'number' || minuteValue % 1 !== 0) {
+        return null;
+    }
+    const dateResult = localDate(year, month, day);
+    if (dateResult.tag === 'Err') {
+        return null;
+    }
+    return Object.freeze({
+        rhythmVersion: rhythmVersion,
+        localDate: dateResult.value,
+        minuteOfDay: minuteValue
+    });
 }
 
 export function generateBlockPlan(date, block, rhythmValue) {

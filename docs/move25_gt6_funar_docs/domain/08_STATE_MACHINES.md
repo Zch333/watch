@@ -33,6 +33,7 @@ stateDiagram-v2
     Due --> Active: StartBreak
     Due --> Finished: SkipBreak
     Active --> Finished: CompleteBreak
+    Active --> Finished: SkipBreak（设计使然：活动进行中也可跳过）
     Active --> Finished: now >= endsAt
     Finished --> NoBreak: acknowledge / cleanup
 ```

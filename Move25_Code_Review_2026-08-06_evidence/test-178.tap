@@ -1,0 +1,1078 @@
+TAP version 13
+# Subtest: example: weekdayOf matches the Gregorian calendar for anchor dates
+ok 1 - example: weekdayOf matches the Gregorian calendar for anchor dates
+  ---
+  duration_ms: 0.6608
+  type: 'test'
+  ...
+# Subtest: property: weekdayOf agrees with a JS Date oracle across a 4-year span
+ok 2 - property: weekdayOf agrees with a JS Date oracle across a 4-year span
+  ---
+  duration_ms: 2.2323
+  type: 'test'
+  ...
+# Subtest: example: addDays crosses month, year and leap boundaries
+ok 3 - example: addDays crosses month, year and leap boundaries
+  ---
+  duration_ms: 0.6419
+  type: 'test'
+  ...
+# Subtest: property: addDays is inverse-consistent over a range
+ok 4 - property: addDays is inverse-consistent over a range
+  ---
+  duration_ms: 0.5153
+  type: 'test'
+  ...
+# Subtest: example: enumerateDates yields contiguous dates
+ok 5 - example: enumerateDates yields contiguous dates
+  ---
+  duration_ms: 0.1964
+  type: 'test'
+  ...
+# Subtest: example: localToInstant and instantToLocal round-trip with fixed offset
+ok 6 - example: localToInstant and instantToLocal round-trip with fixed offset
+  ---
+  duration_ms: 0.3039
+  type: 'test'
+  ...
+# Subtest: property: instantToLocal/localToInstant round-trip across days and offsets
+ok 7 - property: instantToLocal/localToInstant round-trip across days and offsets
+  ---
+  duration_ms: 0.4315
+  type: 'test'
+  ...
+# Subtest: example: instantToLocal converts an instant across a UTC day boundary
+ok 8 - example: instantToLocal converts an instant across a UTC day boundary
+  ---
+  duration_ms: 0.0938
+  type: 'test'
+  ...
+# Subtest: contract/store: load is None before first save and round-trips after
+ok 9 - contract/store: load is None before first save and round-trips after
+  ---
+  duration_ms: 1.5375
+  type: 'test'
+  ...
+# Subtest: contract/store: concurrent modification is rejected, IO failure surfaces
+ok 10 - contract/store: concurrent modification is rejected, IO failure surfaces
+  ---
+  duration_ms: 0.5554
+  type: 'test'
+  ...
+# Subtest: contract/clock: fixed clock returns the configured instant and advances
+ok 11 - contract/clock: fixed clock returns the configured instant and advances
+  ---
+  duration_ms: 0.2287
+  type: 'test'
+  ...
+# Subtest: contract/calendar: fixed calendar resolves and converts consistently
+ok 12 - contract/calendar: fixed calendar resolves and converts consistently
+  ---
+  duration_ms: 0.5237
+  type: 'test'
+  ...
+# Subtest: contract/reminder: register is idempotent by semantic key
+ok 13 - contract/reminder: register is idempotent by semantic key
+  ---
+  duration_ms: 0.66
+  type: 'test'
+  ...
+# Subtest: contract/reminder: register(request) forwards and records recurrence rules
+ok 14 - contract/reminder: register(request) forwards and records recurrence rules
+  ---
+  duration_ms: 0.3518
+  type: 'test'
+  ...
+# Subtest: contract/reminder: re-registering a key reschedules its absolute due time
+ok 15 - contract/reminder: re-registering a key reschedules its absolute due time
+  ---
+  duration_ms: 0.2305
+  type: 'test'
+  ...
+# Subtest: contract/reminder: partial failure is reported per key
+ok 16 - contract/reminder: partial failure is reported per key
+  ---
+  duration_ms: 0.1434
+  type: 'test'
+  ...
+# Subtest: contract/reminder: cancel removes only requested keys and reports missing
+ok 17 - contract/reminder: cancel removes only requested keys and reports missing
+  ---
+  duration_ms: 0.1657
+  type: 'test'
+  ...
+# Subtest: contract/reminder: probe surfaces Unsupported without guessing
+ok 18 - contract/reminder: probe surfaces Unsupported without guessing
+  ---
+  duration_ms: 0.1893
+  type: 'test'
+  ...
+# Subtest: contract/haptics: records every requested pattern
+ok 19 - contract/haptics: records every requested pattern
+  ---
+  duration_ms: 0.1134
+  type: 'test'
+  ...
+# Subtest: contract/diagnostics: append and readRecent are newest-first with a cap
+ok 20 - contract/diagnostics: append and readRecent are newest-first with a cap
+  ---
+  duration_ms: 0.1207
+  type: 'test'
+  ...
+# Subtest: contract/store: readStatus reports revision and presence through the port
+ok 21 - contract/store: readStatus reports revision and presence through the port
+  ---
+  duration_ms: 0.1234
+  type: 'test'
+  ...
+# Subtest: contract/navigation: routes are recorded in order
+ok 22 - contract/navigation: routes are recorded in order
+  ---
+  duration_ms: 0.0774
+  type: 'test'
+  ...
+# Subtest: example: enable requires a confirmed capability and blocks otherwise
+ok 23 - example: enable requires a confirmed capability and blocks otherwise
+  ---
+  duration_ms: 2.0541
+  type: 'test'
+  ...
+# Subtest: example: observing a supported capability then enabling registers a bounded plan
+ok 24 - example: observing a supported capability then enabling registers a bounded plan
+  ---
+  duration_ms: 1.5208
+  type: 'test'
+  ...
+# Subtest: example: the registration decision carries a PlanReconciled diff and effects
+ok 25 - example: the registration decision carries a PlanReconciled diff and effects
+  ---
+  duration_ms: 0.6721
+  type: 'test'
+  ...
+# Subtest: property: reconcile converges to an empty diff after applying its own effects
+ok 26 - property: reconcile converges to an empty diff after applying its own effects
+  ---
+  duration_ms: 1.4615
+  type: 'test'
+  ...
+# Subtest: example: enable is idempotent when already enabled
+ok 27 - example: enable is idempotent when already enabled
+  ---
+  duration_ms: 1.105
+  type: 'test'
+  ...
+# Subtest: example: skip next removes exactly the first future intent
+ok 28 - example: skip next removes exactly the first future intent
+  ---
+  duration_ms: 1.2296
+  type: 'test'
+  ...
+# Subtest: example: skipping with no future reminder returns NOTHING_TO_SKIP
+ok 29 - example: skipping with no future reminder returns NOTHING_TO_SKIP
+  ---
+  duration_ms: 1.1498
+  type: 'test'
+  ...
+# Subtest: example: pause today suppresses the rest of the day
+ok 30 - example: pause today suppresses the rest of the day
+  ---
+  duration_ms: 0.7609
+  type: 'test'
+  ...
+# Subtest: example: pause for one hour extends until now + 60 minutes
+ok 31 - example: pause for one hour extends until now + 60 minutes
+  ---
+  duration_ms: 0.8026
+  type: 'test'
+  ...
+# Subtest: example: expired pause resumes automatically on reduction
+ok 32 - example: expired pause resumes automatically on reduction
+  ---
+  duration_ms: 0.917
+  type: 'test'
+  ...
+# Subtest: example: a valid reminder firing becomes due with vibrate and navigation
+ok 33 - example: a valid reminder firing becomes due with vibrate and navigation
+  ---
+  duration_ms: 1.4995
+  type: 'test'
+  ...
+# Subtest: example: a stale firing is ignored with only a diagnostic
+ok 34 - example: a stale firing is ignored with only a diagnostic
+  ---
+  duration_ms: 0.3542
+  type: 'test'
+  ...
+# Subtest: example: a firing arriving after disable is ignored
+ok 35 - example: a firing arriving after disable is ignored
+  ---
+  duration_ms: 0.3176
+  type: 'test'
+  ...
+# Subtest: example: a duplicate firing while due is idempotent
+ok 36 - example: a duplicate firing while due is idempotent
+  ---
+  duration_ms: 0.4034
+  type: 'test'
+  ...
+# Subtest: example: a duplicate firing never clobbers an active break session
+ok 37 - example: a duplicate firing never clobbers an active break session
+  ---
+  duration_ms: 0.4638
+  type: 'test'
+  ...
+# Subtest: example: a firing for another key while a session is pending is ignored
+ok 38 - example: a firing for another key while a session is pending is ignored
+  ---
+  duration_ms: 0.213
+  type: 'test'
+  ...
+# Subtest: example: a later firing supersedes a finished session
+ok 39 - example: a later firing supersedes a finished session
+  ---
+  duration_ms: 0.3698
+  type: 'test'
+  ...
+# Subtest: example: a delayed callback within the same day still becomes due
+ok 40 - example: a delayed callback within the same day still becomes due
+  ---
+  duration_ms: 0.1992
+  type: 'test'
+  ...
+# Subtest: example: the same instant in another timezone projects a different plan
+ok 41 - example: the same instant in another timezone projects a different plan
+  ---
+  duration_ms: 0.1661
+  type: 'test'
+  ...
+# Subtest: example: a timezone change re-registers reminders at the new absolute times
+ok 42 - example: a timezone change re-registers reminders at the new absolute times
+  ---
+  duration_ms: 0.4745
+  type: 'test'
+  ...
+# Subtest: example: a callback arriving before its scheduled time is rejected
+ok 43 - example: a callback arriving before its scheduled time is rejected
+  ---
+  duration_ms: 0.4292
+  type: 'test'
+  ...
+# Subtest: example: a callback beyond the late tolerance is stale and rejected
+ok 44 - example: a callback beyond the late tolerance is stale and rejected
+  ---
+  duration_ms: 0.2271
+  type: 'test'
+  ...
+# Subtest: example: a malformed firedAt is rejected instead of poisoning the delta
+ok 45 - example: a malformed firedAt is rejected instead of poisoning the delta
+  ---
+  duration_ms: 0.1889
+  type: 'test'
+  ...
+# Subtest: example: start break with a stale reminder key is rejected
+ok 46 - example: start break with a stale reminder key is rejected
+  ---
+  duration_ms: 0.2048
+  type: 'test'
+  ...
+# Subtest: example: recurring strategy fails explicitly when rule count exceeds capacity
+ok 47 - example: recurring strategy fails explicitly when rule count exceeds capacity
+  ---
+  duration_ms: 0.1392
+  type: 'test'
+  ...
+# Subtest: example: a per-date resolver resolves each intent across a DST boundary
+ok 48 - example: a per-date resolver resolves each intent across a DST boundary
+  ---
+  duration_ms: 0.5588
+  type: 'test'
+  ...
+# Subtest: example: a recurring-capable registration carries weekly recurrence rules
+ok 49 - example: a recurring-capable registration carries weekly recurrence rules
+  ---
+  duration_ms: 0.4203
+  type: 'test'
+  ...
+# Subtest: example: a callback slightly early stays within tolerance and becomes due
+ok 50 - example: a callback slightly early stays within tolerance and becomes due
+  ---
+  duration_ms: 0.314
+  type: 'test'
+  ...
+# Subtest: example: start break from due creates an active session ending at +5 minutes
+ok 51 - example: start break from due creates an active session ending at +5 minutes
+  ---
+  duration_ms: 0.303
+  type: 'test'
+  ...
+# Subtest: example: acknowledging a due prompt does not vibrate a second time
+ok 52 - example: acknowledging a due prompt does not vibrate a second time
+  ---
+  duration_ms: 0.25
+  type: 'test'
+  ...
+# Subtest: example: starting a break now from home vibrates once as immediate feedback
+ok 53 - example: starting a break now from home vibrates once as immediate feedback
+  ---
+  duration_ms: 0.1823
+  type: 'test'
+  ...
+# Subtest: example: guidance rotates deterministically across sessions
+ok 54 - example: guidance rotates deterministically across sessions
+  ---
+  duration_ms: 0.5244
+  type: 'test'
+  ...
+# Subtest: example: complete break finishes with Completed outcome
+ok 55 - example: complete break finishes with Completed outcome
+  ---
+  duration_ms: 0.3886
+  type: 'test'
+  ...
+# Subtest: example: immediate break works from NoBreak, skipping works from Due
+ok 56 - example: immediate break works from NoBreak, skipping works from Due
+  ---
+  duration_ms: 0.4262
+  type: 'test'
+  ...
+# Subtest: example: invalid transitions return explicit errors
+ok 57 - example: invalid transitions return explicit errors
+  ---
+  duration_ms: 0.1735
+  type: 'test'
+  ...
+# Subtest: example: disable cancels every registered reminder and returns to Disabled
+ok 58 - example: disable cancels every registered reminder and returns to Disabled
+  ---
+  duration_ms: 0.3308
+  type: 'test'
+  ...
+# Subtest: example: degraded capability still reconciles but cannot claim reliable enable
+ok 59 - example: degraded capability still reconciles but cannot claim reliable enable
+  ---
+  duration_ms: 0.2747
+  type: 'test'
+  ...
+# Subtest: example: time change and date change are handled by regeneration from facts
+ok 60 - example: time change and date change are handled by regeneration from facts
+  ---
+  duration_ms: 0.1783
+  type: 'test'
+  ...
+# Subtest: example: active session older than its endsAt reduces to Finished Expired
+ok 61 - example: active session older than its endsAt reduces to Finished Expired
+  ---
+  duration_ms: 0.1938
+  type: 'test'
+  ...
+# Subtest: example: configure schedule while enabled regenerates the plan and reconciles
+ok 62 - example: configure schedule while enabled regenerates the plan and reconciles
+  ---
+  duration_ms: 0.5015
+  type: 'test'
+  ...
+# Subtest: example: plan generation respects the lunch boundary
+ok 63 - example: plan generation respects the lunch boundary
+  ---
+  duration_ms: 0.172
+  type: 'test'
+  ...
+# Subtest: property: random command sequences never throw and always return tagged results
+ok 64 - property: random command sequences never throw and always return tagged results
+  ---
+  duration_ms: 4.2687
+  type: 'test'
+  ...
+# Subtest: FF-01: domain has zero platform and timer dependencies
+ok 65 - FF-01: domain has zero platform and timer dependencies
+  ---
+  duration_ms: 33.5025
+  type: 'test'
+  ...
+# Subtest: FF-02: domain never imports ports, adapters, app or pages
+ok 66 - FF-02: domain never imports ports, adapters, app or pages
+  ---
+  duration_ms: 8.9625
+  type: 'test'
+  ...
+# Subtest: FF-03: no .ets or Stage/ArkTS artifacts exist under the JS module
+ok 67 - FF-03: no .ets or Stage/ArkTS artifacts exist under the JS module
+  ---
+  duration_ms: 51.5286
+  type: 'test'
+  ...
+# Subtest: platform: config.json stays legacy FA with liteWearable and no network/sensor permissions
+ok 68 - platform: config.json stays legacy FA with liteWearable and no network/sensor permissions
+  ---
+  duration_ms: 3.0654
+  type: 'test'
+  ...
+# Subtest: behavior: repeat reconcile converges and capability-unknown enable fails
+ok 69 - behavior: repeat reconcile converges and capability-unknown enable fails
+  ---
+  duration_ms: 70.1647
+  type: 'test'
+  ...
+# Subtest: mvu: BreakElapsed maps to a reconcile command (absolute-time reduction)
+ok 70 - mvu: BreakElapsed maps to a reconcile command (absolute-time reduction)
+  ---
+  duration_ms: 1.5576
+  type: 'test'
+  ...
+# Subtest: mvu: guidance action keys project to Chinese display labels
+ok 71 - mvu: guidance action keys project to Chinese display labels
+  ---
+  duration_ms: 0.638
+  type: 'test'
+  ...
+# Subtest: settings: opening the page restores the real plan (25/5, Mon-Fri) instead of a 50/10 default
+ok 72 - settings: opening the page restores the real plan (25/5, Mon-Fri) instead of a 50/10 default
+  ---
+  duration_ms: 11.0244
+  type: 'test'
+  ...
+# Subtest: settings: saving without edits preserves the current 25/5 plan
+ok 73 - settings: saving without edits preserves the current 25/5 plan
+  ---
+  duration_ms: 2.8426
+  type: 'test'
+  ...
+# Subtest: settings: custom rhythm and weekend selections restore correctly
+ok 74 - settings: custom rhythm and weekend selections restore correctly
+  ---
+  duration_ms: 0.5297
+  type: 'test'
+  ...
+# Subtest: mvu: projectModel carries shell errors instead of wiping them
+ok 75 - mvu: projectModel carries shell errors instead of wiping them
+  ---
+  duration_ms: 0.1621
+  type: 'test'
+  ...
+# Subtest: shell: a failed command error survives refresh and clears on the next success
+ok 76 - shell: a failed command error survives refresh and clears on the next success
+  ---
+  duration_ms: 0.5988
+  type: 'test'
+  ...
+# Subtest: more: secondary actions dispatch through the MVU pipeline
+ok 77 - more: secondary actions dispatch through the MVU pipeline
+  ---
+  duration_ms: 8.2289
+  type: 'test'
+  ...
+# Subtest: settings: opening and saving custom (non-preset) values is lossless
+ok 78 - settings: opening and saving custom (non-preset) values is lossless
+  ---
+  duration_ms: 1.1298
+  type: 'test'
+  ...
+# Subtest: diagnostics: the page shows the newest eight entries first
+ok 79 - diagnostics: the page shows the newest eight entries first
+  ---
+  duration_ms: 5.2424
+  type: 'test'
+  ...
+# Subtest: break-active: every visible session may dispatch its own expiry event
+ok 80 - break-active: every visible session may dispatch its own expiry event
+  ---
+  duration_ms: 6.1309
+  type: 'test'
+  ...
+# Subtest: example: generateBlockPlan emits focus completion points
+ok 81 - example: generateBlockPlan emits focus completion points
+  ---
+  duration_ms: 1.404
+  type: 'test'
+  ...
+# Subtest: example: generateBlockPlan returns empty when a focus segment cannot finish
+ok 82 - example: generateBlockPlan returns empty when a focus segment cannot finish
+  ---
+  duration_ms: 0.1944
+  type: 'test'
+  ...
+# Subtest: example: a block exactly as long as the focus segment emits one intent
+ok 83 - example: a block exactly as long as the focus segment emits one intent
+  ---
+  duration_ms: 0.1185
+  type: 'test'
+  ...
+# Subtest: example: a break may end exactly at the block end
+ok 84 - example: a break may end exactly at the block end
+  ---
+  duration_ms: 0.1007
+  type: 'test'
+  ...
+# Subtest: example: a block shorter than one cycle but long enough for one focus emits one intent
+ok 85 - example: a block shorter than one cycle but long enough for one focus emits one intent
+  ---
+  duration_ms: 0.1478
+  type: 'test'
+  ...
+# Subtest: property: generated points are sorted, in range, and one cycle apart
+ok 86 - property: generated points are sorted, in range, and one cycle apart
+  ---
+  duration_ms: 3.4631
+  type: 'test'
+  ...
+# Subtest: example: combinePlans sorts and deduplicates by semantic key
+ok 87 - example: combinePlans sorts and deduplicates by semantic key
+  ---
+  duration_ms: 0.3566
+  type: 'test'
+  ...
+# Subtest: property: combinePlans has identity, idempotence, associativity, and commutativity
+ok 88 - property: combinePlans has identity, idempotence, associativity, and commutativity
+  ---
+  duration_ms: 0.1991
+  type: 'test'
+  ...
+# Subtest: example: applySuppression removes pause range and at most one skipped key
+ok 89 - example: applySuppression removes pause range and at most one skipped key
+  ---
+  duration_ms: 0.283
+  type: 'test'
+  ...
+# Subtest: property: suppression is a monotonic subset and never removes two duplicate-key positions
+ok 90 - property: suppression is a monotonic subset and never removes two duplicate-key positions
+  ---
+  duration_ms: 0.2519
+  type: 'test'
+  ...
+# Subtest: example: diffPlans partitions desired and registered plans by semantic key
+ok 91 - example: diffPlans partitions desired and registered plans by semantic key
+  ---
+  duration_ms: 0.3182
+  type: 'test'
+  ...
+# Subtest: property: diffPlans is empty for equal plans and converges after application
+ok 92 - property: diffPlans is empty for equal plans and converges after application
+  ---
+  duration_ms: 0.2987
+  type: 'test'
+  ...
+# Subtest: example: attachDueAt resolves each intent to an absolute instant
+ok 93 - example: attachDueAt resolves each intent to an absolute instant
+  ---
+  duration_ms: 0.276
+  type: 'test'
+  ...
+# Subtest: example: diffPlans treats the same key with a new absolute time as a reschedule
+ok 94 - example: diffPlans treats the same key with a new absolute time as a reschedule
+  ---
+  duration_ms: 0.3156
+  type: 'test'
+  ...
+# Subtest: policy: SingleNext registers exactly the nearest future intent by dueAt
+ok 95 - policy: SingleNext registers exactly the nearest future intent by dueAt
+  ---
+  duration_ms: 1.0678
+  type: 'test'
+  ...
+# Subtest: policy: SingleNext drops past intents and returns empty when nothing is left
+ok 96 - policy: SingleNext drops past intents and returns empty when nothing is left
+  ---
+  duration_ms: 0.1213
+  type: 'test'
+  ...
+# Subtest: policy: RollingWindow keeps only intents within `days` of now
+ok 97 - policy: RollingWindow keeps only intents within `days` of now
+  ---
+  duration_ms: 0.1141
+  type: 'test'
+  ...
+# Subtest: policy: RollingWindow applies the capacity bound after the day window
+ok 98 - policy: RollingWindow applies the capacity bound after the day window
+  ---
+  duration_ms: 0.1072
+  type: 'test'
+  ...
+# Subtest: policy: RollingWindow excludes past intents even inside the window
+ok 99 - policy: RollingWindow excludes past intents even inside the window
+  ---
+  duration_ms: 0.093
+  type: 'test'
+  ...
+# Subtest: policy: RecurringCalendar passes the full plan through untruncated
+ok 100 - policy: RecurringCalendar passes the full plan through untruncated
+  ---
+  duration_ms: 0.084
+  type: 'test'
+  ...
+# Subtest: policy: buildRecurrenceRules collapses concrete dates into weekly weekday+minute rules
+ok 101 - policy: buildRecurrenceRules collapses concrete dates into weekly weekday+minute rules
+  ---
+  duration_ms: 0.6177
+  type: 'test'
+  ...
+# Subtest: policy: buildRecurrenceRules is empty for an empty plan
+ok 102 - policy: buildRecurrenceRules is empty for an empty plan
+  ---
+  duration_ms: 0.0892
+  type: 'test'
+  ...
+# Subtest: runtime/fixed-clock: creation without a valid Instant fails fast
+ok 103 - runtime/fixed-clock: creation without a valid Instant fails fast
+  ---
+  duration_ms: 0.9265
+  type: 'test'
+  ...
+# Subtest: runtime/fixed-clock: set() refuses malformed instants
+ok 104 - runtime/fixed-clock: set() refuses malformed instants
+  ---
+  duration_ms: 0.1873
+  type: 'test'
+  ...
+# Subtest: runtime/host-root: createHostApp fails fast without a clock source
+ok 105 - runtime/host-root: createHostApp fails fast without a clock source
+  ---
+  duration_ms: 0.1475
+  type: 'test'
+  ...
+# Subtest: runtime/host-root: createHostApp works with an explicit instant
+ok 106 - runtime/host-root: createHostApp works with an explicit instant
+  ---
+  duration_ms: 1.4963
+  type: 'test'
+  ...
+# Subtest: runtime/device-root: refuses to assemble without probe-confirmed adapters
+ok 107 - runtime/device-root: refuses to assemble without probe-confirmed adapters
+  ---
+  duration_ms: 0.2557
+  type: 'test'
+  ...
+# Subtest: runtime/device-root: assembles a working app from a full adapter set
+ok 108 - runtime/device-root: assembles a working app from a full adapter set
+  ---
+  duration_ms: 0.248
+  type: 'test'
+  ...
+# Subtest: runtime/device-root: navigation is optional and Navigate becomes a no-op
+ok 109 - runtime/device-root: navigation is optional and Navigate becomes a no-op
+  ---
+  duration_ms: 0.1182
+  type: 'test'
+  ...
+# Subtest: runtime/app-runtime: boots from injected ports without knowing their origin
+ok 110 - runtime/app-runtime: boots from injected ports without knowing their origin
+  ---
+  duration_ms: 0.1826
+  type: 'test'
+  ...
+# Subtest: runtime/shell: a malformed clock value is rejected at the shell boundary
+ok 111 - runtime/shell: a malformed clock value is rejected at the shell boundary
+  ---
+  duration_ms: 0.4056
+  type: 'test'
+  ...
+# Subtest: runtime/shell: initDeviceApp surfaces an explicit error model without adapters
+ok 112 - runtime/shell: initDeviceApp surfaces an explicit error model without adapters
+  ---
+  duration_ms: 0.2431
+  type: 'test'
+  ...
+# Subtest: runtime/shell: initApp surfaces an explicit error model without a clock source
+ok 113 - runtime/shell: initApp surfaces an explicit error model without a clock source
+  ---
+  duration_ms: 0.1297
+  type: 'test'
+  ...
+# Subtest: runtime/shell: initDeviceApp with adapters boots and projects normally
+ok 114 - runtime/shell: initDeviceApp with adapters boots and projects normally
+  ---
+  duration_ms: 2.0564
+  type: 'test'
+  ...
+# Subtest: runtime/shell: initDeviceApp without a factory is explicit
+ok 115 - runtime/shell: initDeviceApp without a factory is explicit
+  ---
+  duration_ms: 0.1018
+  type: 'test'
+  ...
+# Subtest: runtime/shell: refresh settles an expired active session and persists it
+ok 116 - runtime/shell: refresh settles an expired active session and persists it
+  ---
+  duration_ms: 1.7256
+  type: 'test'
+  ...
+# Subtest: runtime/shell: boot automatically reconciles an expired session without any page command
+ok 117 - runtime/shell: boot automatically reconciles an expired session without any page command
+  ---
+  duration_ms: 0.9155
+  type: 'test'
+  ...
+# Subtest: runtime/shell: boot automatically cancels orphan reminders while Disabled
+ok 118 - runtime/shell: boot automatically cancels orphan reminders while Disabled
+  ---
+  duration_ms: 1.3923
+  type: 'test'
+  ...
+# Subtest: example: defaults are Mon-Fri, two blocks, 25/5, disabled, schema v1
+ok 119 - example: defaults are Mon-Fri, two blocks, 25/5, disabled, schema v1
+  ---
+  duration_ms: 1.2397
+  type: 'test'
+  ...
+# Subtest: example: normalizeWorkBlocks sorts and rejects overlaps, allows touching
+ok 120 - example: normalizeWorkBlocks sorts and rejects overlaps, allows touching
+  ---
+  duration_ms: 0.2014
+  type: 'test'
+  ...
+# Subtest: example: normalizeWeekdays sorts and deduplicates
+ok 121 - example: normalizeWeekdays sorts and deduplicates
+  ---
+  duration_ms: 0.105
+  type: 'test'
+  ...
+# Subtest: example: scheduleSettings accepts constructed domain values
+ok 122 - example: scheduleSettings accepts constructed domain values
+  ---
+  duration_ms: 0.115
+  type: 'test'
+  ...
+# Subtest: example: parseScheduleInput validates raw user input
+ok 123 - example: parseScheduleInput validates raw user input
+  ---
+  duration_ms: 0.2497
+  type: 'test'
+  ...
+# Subtest: property: parseScheduleInput round-trips constructed settings
+ok 124 - property: parseScheduleInput round-trips constructed settings
+  ---
+  duration_ms: 0.2243
+  type: 'test'
+  ...
+# Subtest: example: localDate is required, not fabricated by settings
+ok 125 - example: localDate is required, not fabricated by settings
+  ---
+  duration_ms: 0.1337
+  type: 'test'
+  ...
+# Subtest: settle: full registration keeps PlanEnabled
+ok 126 - settle: full registration keeps PlanEnabled
+  ---
+  duration_ms: 0.726
+  type: 'test'
+  ...
+# Subtest: settle: partial registration drops PlanEnabled so the plan stays Enabling
+ok 127 - settle: partial registration drops PlanEnabled so the plan stays Enabling
+  ---
+  duration_ms: 0.3189
+  type: 'test'
+  ...
+# Subtest: settle: total failure replaces PlanEnabled with PlanBlocked
+ok 128 - settle: total failure replaces PlanEnabled with PlanBlocked
+  ---
+  duration_ms: 0.1439
+  type: 'test'
+  ...
+# Subtest: settle: reconcile completing a pending enable appends PlanEnabled
+ok 129 - settle: reconcile completing a pending enable appends PlanEnabled
+  ---
+  duration_ms: 0.0935
+  type: 'test'
+  ...
+# Subtest: settle: total failure while awaiting enable blocks even without PlanEnabled in this decision
+ok 130 - settle: total failure while awaiting enable blocks even without PlanEnabled in this decision
+  ---
+  duration_ms: 0.0894
+  type: 'test'
+  ...
+# Subtest: settle: no registration outcome leaves events untouched
+ok 131 - settle: no registration outcome leaves events untouched
+  ---
+  duration_ms: 0.0951
+  type: 'test'
+  ...
+# Subtest: settle: a PlanEnabled claim without a registration outcome is a shell defect
+ok 132 - settle: a PlanEnabled claim without a registration outcome is a shell defect
+  ---
+  duration_ms: 0.0927
+  type: 'test'
+  ...
+# Subtest: shell: enable claims Enabled only when registration fully succeeds
+ok 133 - shell: enable claims Enabled only when registration fully succeeds
+  ---
+  duration_ms: 2.7709
+  type: 'test'
+  ...
+# Subtest: shell: total registration failure must never show Enabled
+ok 134 - shell: total registration failure must never show Enabled
+  ---
+  duration_ms: 0.7173
+  type: 'test'
+  ...
+# Subtest: shell: partial registration failure stays Enabling and reconcile converges
+ok 135 - shell: partial registration failure stays Enabling and reconcile converges
+  ---
+  duration_ms: 1.1997
+  type: 'test'
+  ...
+# Subtest: shell: reconcile failure for a command needing the registered plan is explicit
+ok 136 - shell: reconcile failure for a command needing the registered plan is explicit
+  ---
+  duration_ms: 0.2332
+  type: 'test'
+  ...
+# Subtest: shell: commands that do not need the registered plan proceed despite a broken list
+ok 137 - shell: commands that do not need the registered plan proceed despite a broken list
+  ---
+  duration_ms: 0.3834
+  type: 'test'
+  ...
+# Subtest: example: createSnapshot serializes domain state with schema version
+ok 138 - example: createSnapshot serializes domain state with schema version
+  ---
+  duration_ms: 1.6222
+  type: 'test'
+  ...
+# Subtest: example: snapshot round-trips through migrate and stateFromSnapshot
+ok 139 - example: snapshot round-trips through migrate and stateFromSnapshot
+  ---
+  duration_ms: 1.2317
+  type: 'test'
+  ...
+# Subtest: example: JSON round-trip preserves all tagged fields
+ok 140 - example: JSON round-trip preserves all tagged fields
+  ---
+  duration_ms: 0.8053
+  type: 'test'
+  ...
+# Subtest: example: null raw snapshot yields fresh defaults
+ok 141 - example: null raw snapshot yields fresh defaults
+  ---
+  duration_ms: 0.1462
+  type: 'test'
+  ...
+# Subtest: example: corrupt snapshots fail explicitly without silent reset
+ok 142 - example: corrupt snapshots fail explicitly without silent reset
+  ---
+  duration_ms: 0.2036
+  type: 'test'
+  ...
+# Subtest: example: rehydrateFromRaw is the full load path
+ok 143 - example: rehydrateFromRaw is the full load path
+  ---
+  duration_ms: 0.1899
+  type: 'test'
+  ...
+# Subtest: example: freshSnapshot is an explicit reset path
+ok 144 - example: freshSnapshot is an explicit reset path
+  ---
+  duration_ms: 0.1631
+  type: 'test'
+  ...
+# Subtest: example: unknown lifecycle/session tags fail strict decode
+ok 145 - example: unknown lifecycle/session tags fail strict decode
+  ---
+  duration_ms: 0.1533
+  type: 'test'
+  ...
+# Subtest: example: invalid nested values fail strict decode
+ok 146 - example: invalid nested values fail strict decode
+  ---
+  duration_ms: 0.1745
+  type: 'test'
+  ...
+# Subtest: example: a spoofed ScheduleSettings tag never bypasses validation
+ok 147 - example: a spoofed ScheduleSettings tag never bypasses validation
+  ---
+  duration_ms: 0.1927
+  type: 'test'
+  ...
+# Subtest: example: non-integer revision and guidanceIndex fail strict decode
+ok 148 - example: non-integer revision and guidanceIndex fail strict decode
+  ---
+  duration_ms: 0.2249
+  type: 'test'
+  ...
+# Subtest: example: an Active session whose endsAt is not after startedAt fails decode
+ok 149 - example: an Active session whose endsAt is not after startedAt fails decode
+  ---
+  duration_ms: 0.2332
+  type: 'test'
+  ...
+# Subtest: example: a spoofed PauseThroughLocal with an invalid date fails decode
+ok 150 - example: a spoofed PauseThroughLocal with an invalid date fails decode
+  ---
+  duration_ms: 0.2117
+  type: 'test'
+  ...
+# Subtest: mvu: initial model projects disabled, unknown capability and no next break
+ok 151 - mvu: initial model projects disabled, unknown capability and no next break
+  ---
+  duration_ms: 3.5262
+  type: 'test'
+  ...
+# Subtest: mvu: enabled model shows the next break time as HH:MM
+ok 152 - mvu: enabled model shows the next break time as HH:MM
+  ---
+  duration_ms: 0.6015
+  type: 'test'
+  ...
+# Subtest: mvu: active session projects remaining seconds from endsAt
+ok 153 - mvu: active session projects remaining seconds from endsAt
+  ---
+  duration_ms: 0.949
+  type: 'test'
+  ...
+# Subtest: mvu: finished session projects the outcome
+ok 154 - mvu: finished session projects the outcome
+  ---
+  duration_ms: 0.7587
+  type: 'test'
+  ...
+# Subtest: mvu: TickVisible recomputes remaining time purely from endsAt
+ok 155 - mvu: TickVisible recomputes remaining time purely from endsAt
+  ---
+  duration_ms: 0.2585
+  type: 'test'
+  ...
+# Subtest: mvu: messages map to the right domain commands
+ok 156 - mvu: messages map to the right domain commands
+  ---
+  duration_ms: 0.1765
+  type: 'test'
+  ...
+# Subtest: mvu: StartDuePressed uses the reminder key when present
+ok 157 - mvu: StartDuePressed uses the reminder key when present
+  ---
+  duration_ms: 0.1009
+  type: 'test'
+  ...
+# Subtest: shell: initApp + dispatch drives the model through real commands
+ok 158 - shell: initApp + dispatch drives the model through real commands
+  ---
+  duration_ms: 1.0743
+  type: 'test'
+  ...
+# Subtest: mvu: degraded capability banner is explicit and not ok
+ok 159 - mvu: degraded capability banner is explicit and not ok
+  ---
+  duration_ms: 0.4962
+  type: 'test'
+  ...
+# Subtest: mvu: unsupported capability banner reads Unsupported
+ok 160 - mvu: unsupported capability banner reads Unsupported
+  ---
+  duration_ms: 0.6161
+  type: 'test'
+  ...
+# Subtest: shell: a corrupt snapshot surfaces an explicit error model at boot
+ok 161 - shell: a corrupt snapshot surfaces an explicit error model at boot
+  ---
+  duration_ms: 0.2885
+  type: 'test'
+  ...
+# Subtest: shell: refresh reprojects from the current clock
+ok 162 - shell: refresh reprojects from the current clock
+  ---
+  duration_ms: 0.6378
+  type: 'test'
+  ...
+# Subtest: example: smart constructors return tagged immutable values
+ok 163 - example: smart constructors return tagged immutable values
+  ---
+  duration_ms: 1.4165
+  type: 'test'
+  ...
+# Subtest: example: smart constructors expose expected validation errors
+ok 164 - example: smart constructors expose expected validation errors
+  ---
+  duration_ms: 0.1662
+  type: 'test'
+  ...
+# Subtest: property: minuteOfDay accepts exactly the integer day-minute range
+ok 165 - property: minuteOfDay accepts exactly the integer day-minute range
+  ---
+  duration_ms: 0.5389
+  type: 'test'
+  ...
+# Subtest: property: localDate implements Gregorian leap-year boundaries without a clock
+ok 166 - property: localDate implements Gregorian leap-year boundaries without a clock
+  ---
+  duration_ms: 0.097
+  type: 'test'
+  ...
+# Subtest: example: rhythm and workBlock accept only constructed domain values
+ok 167 - example: rhythm and workBlock accept only constructed domain values
+  ---
+  duration_ms: 0.1307
+  type: 'test'
+  ...
+# Subtest: workflow: full journey from enable to disable on memory adapters
+ok 168 - workflow: full journey from enable to disable on memory adapters
+  ---
+  duration_ms: 4.46
+  type: 'test'
+  ...
+# Subtest: workflow: partial registration failure is visible and reconciled on retry
+ok 169 - workflow: partial registration failure is visible and reconciled on retry
+  ---
+  duration_ms: 1.2097
+  type: 'test'
+  ...
+# Subtest: workflow: restart recovery reduces expired active session and paused plan
+ok 170 - workflow: restart recovery reduces expired active session and paused plan
+  ---
+  duration_ms: 1.409
+  type: 'test'
+  ...
+# Subtest: workflow: expired pause resumes after restart
+ok 171 - workflow: expired pause resumes after restart
+  ---
+  duration_ms: 1.0307
+  type: 'test'
+  ...
+# Subtest: workflow: persistence failure returns Err and never exposes the candidate state
+ok 172 - workflow: persistence failure returns Err and never exposes the candidate state
+  ---
+  duration_ms: 0.2263
+  type: 'test'
+  ...
+# Subtest: workflow: cancel failure never commits Disabled and retry converges
+ok 173 - workflow: cancel failure never commits Disabled and retry converges
+  ---
+  duration_ms: 0.4286
+  type: 'test'
+  ...
+# Subtest: workflow: orphan reminders are cleaned up by a later Disable or Reconcile
+ok 174 - workflow: orphan reminders are cleaned up by a later Disable or Reconcile
+  ---
+  duration_ms: 0.3822
+  type: 'test'
+  ...
+# Subtest: workflow: late-tolerance keeps a pending reminder registered across reconcile
+ok 175 - workflow: late-tolerance keeps a pending reminder registered across reconcile
+  ---
+  duration_ms: 1.1238
+  type: 'test'
+  ...
+# Subtest: workflow: skip cancels a future-dated reminder immediately
+ok 176 - workflow: skip cancels a future-dated reminder immediately
+  ---
+  duration_ms: 0.789
+  type: 'test'
+  ...
+# Subtest: workflow: recurrence rules reach the adapter on recurring capability
+ok 177 - workflow: recurrence rules reach the adapter on recurring capability
+  ---
+  duration_ms: 0.423
+  type: 'test'
+  ...
+# Subtest: workflow: DST boundary resolves every future local time individually
+ok 178 - workflow: DST boundary resolves every future local time individually
+  ---
+  duration_ms: 0.3909
+  type: 'test'
+  ...
+1..178
+# tests 178
+# suites 0
+# pass 178
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1475.1951

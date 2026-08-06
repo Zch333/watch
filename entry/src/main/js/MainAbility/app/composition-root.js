@@ -38,7 +38,11 @@ export function createHostApp(options) {
     const store = opts.store || createMemoryStore();
     const reminders = opts.reminders || createRecordingReminder({
         capability: opts.capability,
-        failKeys: opts.failKeys
+        failKeys: opts.failKeys,
+        // Same calendar the domain resolves through: the rule-mode occurrence
+        // view (listRegistered) must resolve identically to the desired plan,
+        // including per-day DST handling (ReminderSchedulerPort/v2).
+        calendar: calendar
     });
     const haptics = opts.haptics || createMemoryHaptics();
     const diagnostics = opts.diagnostics || createMemoryDiagnostics();

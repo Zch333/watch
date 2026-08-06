@@ -514,6 +514,43 @@ test('example: a malformed firedAt is rejected instead of poisoning the delta', 
     assert.equal(float.error.code, 'INVALID_INSTANT');
 });
 
+test('example: a callback during Enabling is ignored with a diagnostic, never popped', () => {
+    // P3-03: registration has not been confirmed while Enabling, so a
+    // misfired callback must not promote to a Due prompt.
+    let state = initialDomainState();
+    state = evolveOk(state, [capabilityObserved(SUPPORTED)]);
+    const enable = decide(state, enablePlan(), factsAt(2026, 8, 6, 600));
+    assert.equal(enable.tag, 'Ok');
+    // Pure decide: the PlanEnabled claim is settled by the shell gate, not
+    // here — evolve only the enable REQUEST so the state stays Enabling.
+    state = evolveOk(state, enable.value.events.slice(0, 1));
+    assert.equal(state.planLifecycle.tag, 'Enabling');
+
+    const fired = factsAt(2026, 8, 6, 625);
+    const result = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.events.length, 0);
+    assert.equal(result.value.effects.some(function (e) {
+        return e.tag === 'EmitDiagnostic' && e.entry.tag === 'ReminderIgnoredWhileEnabling';
+    }), true);
+    assert.equal(state.breakSession.tag, 'NoBreak');
+});
+
+test('example: a callback for a rule occurrence the template no longer contains is stale', () => {
+    // P1-01 callback mapping: after a failed rule replacement the system may
+    // still fire an old-rule occurrence. Its key does not match the CURRENT
+    // configuration's template (rhythm 30-5 vs 25-5), so it must be ignored
+    // with a diagnostic — never popped as a valid break prompt.
+    const state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const result = decide(state, handleReminderFired('break-start:30-5:2026-08-06:625', fired.now), fired);
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.events.length, 0);
+    assert.equal(result.value.effects.some(function (e) {
+        return e.tag === 'EmitDiagnostic' && e.entry.tag === 'StaleReminderIgnored';
+    }), true);
+});
+
 test('example: start break with a stale reminder key is rejected', () => {
     let state = enabledStateAt(2026, 8, 6, 600);
     const fired = factsAt(2026, 8, 6, 625);
@@ -610,6 +647,19 @@ test('example: a recurring-capable registration carries weekly recurrence rules'
     assert.equal(rule.repeatKind, 'Weekly');
     assert.equal(rule.weekdays.length > 0, true);
     assert.equal(typeof rule.minuteOfDay, 'number');
+    // P1-01: every rule carries a stable identity for one-rule-one-registration.
+    assert.equal(typeof rule.ruleKey, 'string');
+    assert.ok(rule.ruleKey.indexOf('recurrence:25-5:') === 0);
+    // P1-02: the rules cover the full configured week, not the 3-day horizon
+    // (enabled on Thursday; Mon–Fri must all be present).
+    const union = {};
+    for (let index = 0; index < effect.recurrenceRules.length; index += 1) {
+        const days = effect.recurrenceRules[index].weekdays;
+        for (let dayIndex = 0; dayIndex < days.length; dayIndex += 1) {
+            union[days[dayIndex]] = true;
+        }
+    }
+    assert.deepEqual(Object.keys(union).sort(), ['Fri', 'Mon', 'Thu', 'Tue', 'Wed']);
 });
 
 test('example: a callback slightly early stays within tolerance and becomes due', () => {
@@ -772,15 +822,31 @@ test('example: disable cancels every registered reminder and returns to Disabled
     }));
     assert.equal(result.tag, 'Ok');
     assert.equal(result.value.events[0].tag, 'PlanDisabled');
-    assert.equal(cancelKeys(result).length, registered.value.length);
+    const keys = cancelKeys(result);
+    // SUPPORTED here declares supportsRecurring, so registration is rule
+    // mode: every concrete occurrence AND every weekly ruleKey must be
+    // cancelled — a disable that only cancels concrete keys would leave the
+    // weekly rules firing (P1-01).
+    assert.equal(keys.length > registered.value.length, true);
+    assert.equal(keys.some(function (key) {
+        return key.indexOf('recurrence:') === 0;
+    }), true, 'disable in rule mode must cancel the rules by ruleKey');
 
     const applied = evolveOk(state, result.value.events);
     assert.equal(applied.planLifecycle.tag, 'Disabled');
     assert.equal(applied.settings.enabledFlag, false);
 
+    // A repeated disable in rule mode still emits the ruleKey cleanup: the
+    // domain cannot observe the rule registry through the occurrence view,
+    // so a previously failed rule cancellation stays retryable (P1-01).
+    // The adapter reports such keys as missing — idempotent and harmless.
     const again = decide(applied, disablePlan(), factsAt(2026, 8, 6, 600));
     assert.deepEqual(again.value.events, []);
-    assert.deepEqual(again.value.effects, []);
+    assert.equal(again.value.effects.length, 1);
+    assert.equal(again.value.effects[0].tag, 'CancelReminders');
+    assert.equal(again.value.effects[0].keys.some(function (key) {
+        return key.indexOf('recurrence:') === 0;
+    }), true, 'the retried cleanup must carry the ruleKeys');
 });
 
 test('example: degraded capability still reconciles but cannot claim reliable enable', () => {

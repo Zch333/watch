@@ -16,14 +16,18 @@ import { err, ok } from '../domain/result.js';
 export function interpretEffect(effect, ports) {
     switch (effect.tag) {
         case 'RegisterReminders':
-            // The recurrence rules must reach the adapter: they are the
-            // artifact a RecurringCalendar adapter consumes (one registration
-            // per weekly slot instead of one per concrete date). Dropping
+            // The recurrence rules and their exceptions must reach the
+            // adapter: they are the artifact a RecurringCalendar adapter
+            // consumes (one registration per weekly rule instead of one per
+            // concrete date, plus occurrence-level suppressions). Dropping
             // them here would silently turn recurring registration into a
             // one-shot list of concrete intents.
             return ports.reminders.register(Object.freeze({
                 intents: effect.intents,
-                recurrenceRules: effect.recurrenceRules || Object.freeze([])
+                recurrenceRules: effect.recurrenceRules || Object.freeze([]),
+                ruleExceptions: effect.ruleExceptions || Object.freeze([]),
+                now: effect.now,
+                expandDays: effect.expandDays
             }));
         case 'CancelReminders':
             return ports.reminders.cancel(effect.keys);

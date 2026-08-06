@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 import test from 'node:test';
 
-const ROOT = resolve('Z:/work/watch');
+// The repo root is derived from this file's own location, never hardcoded:
+// a checked-out copy elsewhere must run the same assertions against ITS
+// source (P1-04). fitness.test.mjs sits at
+//   <root>/entry/src/main/js/MainAbility/tests-host/fitness.test.mjs
+// so six levels up is the repository root.
+const ROOT = fileURLToPath(new URL('../../../../../../', import.meta.url));
 const JS_ROOT = join(ROOT, 'entry/src/main/js/MainAbility');
 const DOMAIN_DIR = join(JS_ROOT, 'domain');
 

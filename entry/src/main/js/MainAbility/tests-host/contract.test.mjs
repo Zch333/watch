@@ -10,6 +10,7 @@ import { createMemoryDiagnostics } from '../adapters/memory/memory-diagnostics.j
 import { createRecordingNavigation } from '../adapters/memory/recording-navigation.js';
 import { none, some } from '../domain/option.js';
 import { instant } from '../domain/values.js';
+import { localToInstant } from '../domain/calendar.js';
 import { capabilitySupported } from '../domain/state.js';
 import { createSnapshot } from '../domain/snapshot.js';
 import { initialDomainState } from '../domain/model.js';
@@ -94,23 +95,197 @@ test('contract/reminder: register(request) forwards and records recurrence rules
     const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
     const rule = Object.freeze({
         tag: 'RecurrenceRule',
+        ruleKey: 'recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri',
+        semanticKeyPrefix: 'break-start:25-5:',
         weekdays: Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
         minuteOfDay: 565,
         repeatKind: 'Weekly'
     });
     const result = adapter.register({
         intents: [intent('k-1', 565)],
-        recurrenceRules: [rule]
+        recurrenceRules: [rule],
+        ruleExceptions: [],
+        now: instant(1000).value,
+        expandDays: 3
     });
     assert.equal(result.tag, 'Ok');
     // The rules must arrive intact: the effect interpreter and the adapter
     // boundary must never drop them (review P0-04).
     assert.deepEqual(adapter._lastRecurrenceRules(), [rule]);
-    assert.equal(adapter.listRegistered('move25').value.length, 1);
+    // Rule mode registers ONE system registration per rule, never per
+    // concrete intent (P1-01): the registry holds the ruleKey, not k-1.
+    assert.deepEqual(adapter._ruleMappings(), [{
+        ruleKey: 'recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri',
+        systemId: 'sys-1'
+    }]);
+    assert.deepEqual(adapter._mappings().length, 1);
 
     // Empty rules mean one-shot registration and are reported as such.
-    adapter.register({ intents: [intent('k-2', 595)], recurrenceRules: [] });
+    adapter.register({ intents: [intent('k-2', 595)], recurrenceRules: [], ruleExceptions: [] });
     assert.deepEqual(adapter._lastRecurrenceRules(), []);
+    assert.deepEqual(adapter._ruleMappings(), [], 'one-shot mode must not keep rules');
+});
+
+test('contract/reminder: rule registration is idempotent by ruleKey with a stable system id', () => {
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    const rule = Object.freeze({
+        tag: 'RecurrenceRule',
+        ruleKey: 'recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri',
+        semanticKeyPrefix: 'break-start:25-5:',
+        weekdays: Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+        minuteOfDay: 565,
+        repeatKind: 'Weekly'
+    });
+    const request = { intents: [], recurrenceRules: [rule], ruleExceptions: [], now: instant(1000).value, expandDays: 3 };
+    const first = adapter.register(request);
+    assert.equal(first.tag, 'Ok');
+    const second = adapter.register(request);
+    assert.equal(second.tag, 'Ok');
+    assert.equal(second.value.registered.length, 1);
+    assert.equal(adapter._ruleMappings().length, 1);
+    // Same system id preserved across re-register: one rule, one registration.
+    assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
+});
+
+test('contract/reminder: rule-mode register replaces the rule set wholesale', () => {
+    // A re-configure must not leak stale weekly rules: rules absent from the
+    // new set are removed, unchanged rules keep their system id.
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    const morning = Object.freeze({
+        tag: 'RecurrenceRule',
+        ruleKey: 'recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri',
+        semanticKeyPrefix: 'break-start:25-5:',
+        weekdays: Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+        minuteOfDay: 565,
+        repeatKind: 'Weekly'
+    });
+    const noon = Object.freeze({
+        tag: 'RecurrenceRule',
+        ruleKey: 'recurrence:25-5:715:Mon+Tue+Wed+Thu+Fri',
+        semanticKeyPrefix: 'break-start:25-5:',
+        weekdays: Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+        minuteOfDay: 715,
+        repeatKind: 'Weekly'
+    });
+    const base = { intents: [], ruleExceptions: [], now: instant(1000).value, expandDays: 3 };
+
+    const first = adapter.register(Object.assign({}, base, { recurrenceRules: [morning, noon] }));
+    assert.equal(first.tag, 'Ok');
+    assert.equal(adapter._ruleMappings().length, 2);
+
+    // Re-configure: only the 09:25 rule remains in the new template.
+    const second = adapter.register(Object.assign({}, base, { recurrenceRules: [morning] }));
+    assert.equal(second.tag, 'Ok');
+    const mappings = adapter._ruleMappings();
+    assert.deepEqual(mappings.map(function (m) {
+        return m.ruleKey;
+    }), ['recurrence:25-5:565:Mon+Tue+Wed+Thu+Fri']);
+    assert.equal(mappings[0].systemId, first.value.registered[0].systemId,
+        'the surviving rule keeps its stable system id');
+});
+
+test('contract/reminder: the rule-mode occurrence view is future-only, windowed and exceptioned', () => {
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    // Thu 2026-08-06 09:00 UTC+8: 09:25 is still future, 11:55 too.
+    const now = localToInstant({ tag: 'LocalDate', year: 2026, month: 8, day: 6 },
+        { tag: 'MinuteOfDay', value: 540 }, 480).value;
+    const rules = [
+        Object.freeze({
+            tag: 'RecurrenceRule',
+            ruleKey: 'recurrence:25-5:565:Thu',
+            semanticKeyPrefix: 'break-start:25-5:',
+            weekdays: Object.freeze(['Thu']),
+            minuteOfDay: 565,
+            repeatKind: 'Weekly'
+        }),
+        Object.freeze({
+            tag: 'RecurrenceRule',
+            ruleKey: 'recurrence:25-5:715:Thu',
+            semanticKeyPrefix: 'break-start:25-5:',
+            weekdays: Object.freeze(['Thu']),
+            minuteOfDay: 715,
+            repeatKind: 'Weekly'
+        })
+    ];
+    // Skip the 11:55 occurrence on 2026-08-06: the view must not contain it.
+    const exceptions = [Object.freeze({
+        tag: 'RuleException',
+        ruleKey: 'recurrence:25-5:715:Thu',
+        occurrenceDate: { tag: 'LocalDate', year: 2026, month: 8, day: 6 },
+        action: 'skip'
+    })];
+    adapter.register({ intents: [], recurrenceRules: rules, ruleExceptions: exceptions, now: now, expandDays: 1 });
+    const view = adapter.listRegistered('move25').value;
+    const keys = view.map(function (entry) {
+        return entry.key.value;
+    }).sort();
+    // 09:25 (future at 09:00) is present; 11:55 is silenced by the exception;
+    // nothing from beyond the 1-day window appears.
+    assert.deepEqual(keys, ['break-start:25-5:2026-08-06:565']);
+});
+
+test('contract/reminder: cancel reports concrete rule occurrences as missing in rule mode', () => {
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    const rule = Object.freeze({
+        tag: 'RecurrenceRule',
+        ruleKey: 'recurrence:25-5:565:Thu',
+        semanticKeyPrefix: 'break-start:25-5:',
+        weekdays: Object.freeze(['Thu']),
+        minuteOfDay: 565,
+        repeatKind: 'Weekly'
+    });
+    const now = localToInstant({ tag: 'LocalDate', year: 2026, month: 8, day: 6 },
+        { tag: 'MinuteOfDay', value: 600 }, 480).value;
+    adapter.register({ intents: [], recurrenceRules: [rule], ruleExceptions: [], now: now, expandDays: 3 });
+    // Occurrences are not individually registered: cancel by ruleKey works,
+    // cancel of a concrete occurrence key is reported missing.
+    const byRule = adapter.cancel(['recurrence:25-5:565:Thu']);
+    assert.deepEqual(byRule.value.cancelled, ['recurrence:25-5:565:Thu']);
+    adapter.register({ intents: [], recurrenceRules: [rule], ruleExceptions: [], now: now, expandDays: 3 });
+    const byOccurrence = adapter.cancel(['break-start:25-5:2026-08-06:565']);
+    assert.deepEqual(byOccurrence.value.cancelled, []);
+    assert.deepEqual(byOccurrence.value.missing, ['break-start:25-5:2026-08-06:565']);
+});
+
+test('contract/reminder: rule-level partial failure is reported per ruleKey', () => {
+    const adapter = createRecordingReminder({
+        capability: capabilitySupported({ maxPendingCount: 30 }),
+        failRuleKeys: ['recurrence:25-5:565:Thu']
+    });
+    const rules = [
+        Object.freeze({
+            tag: 'RecurrenceRule',
+            ruleKey: 'recurrence:25-5:565:Thu',
+            semanticKeyPrefix: 'break-start:25-5:',
+            weekdays: Object.freeze(['Thu']),
+            minuteOfDay: 565,
+            repeatKind: 'Weekly'
+        }),
+        Object.freeze({
+            tag: 'RecurrenceRule',
+            ruleKey: 'recurrence:25-5:715:Thu',
+            semanticKeyPrefix: 'break-start:25-5:',
+            weekdays: Object.freeze(['Thu']),
+            minuteOfDay: 715,
+            repeatKind: 'Weekly'
+        })
+    ];
+    const result = adapter.register({
+        intents: [],
+        recurrenceRules: rules,
+        ruleExceptions: [],
+        now: instant(1000).value,
+        expandDays: 3
+    });
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'PARTIAL_FAILURE');
+    assert.equal(result.error.details.registered.length, 1);
+    assert.equal(result.error.details.failed.length, 1);
+    assert.equal(result.error.details.failed[0].ruleKey, 'recurrence:25-5:565:Thu');
+    // The healthy rule is still registered.
+    assert.deepEqual(adapter._ruleMappings().map(function (m) {
+        return m.ruleKey;
+    }), ['recurrence:25-5:715:Thu']);
 });
 
 test('contract/reminder: re-registering a key reschedules its absolute due time', () => {

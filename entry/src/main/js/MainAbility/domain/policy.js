@@ -1,6 +1,8 @@
-import { weekdayOf } from './calendar.js';
+import { addDays, compareLocalDates, weekdayOf } from './calendar.js';
 import { domainError, ERROR_CODES } from './errors.js';
+import { noPause, noSkip, parseBreakStartKey } from './plan.js';
 import { err, ok } from './result.js';
+import { minuteOfDay, semanticKey } from './values.js';
 
 /**
  * Reliable background enablement is only allowed for Supported capability.
@@ -154,40 +156,231 @@ export function applyStrategyWindow(desiredPlan, strategy, now) {
 }
 
 /**
- * Collapse a concrete-date plan into weekly recurrence rules: one rule per
- * reminder minute-of-day, carrying the weekday set. This is the artifact a
- * RecurringCalendar adapter consumes (register once, repeat weekly) instead
- * of one registration per concrete date. Pure; requires dueAt-free intents
- * with a valid localDate.
+ * Build the weekly recurrence rule template from the COMPLETE schedule
+ * configuration — not from an instantiated, horizon-limited or suppressed
+ * plan. This is the P1-02 fix: the template must cover every configured
+ * weekday no matter when it is built (a Wednesday enable still yields
+ * Mon–Fri rules), and one-off suppressions (skip/pause/future filtering)
+ * are expressed as occurrence-level ruleExceptions, never folded into the
+ * template itself.
+ *
+ * One rule per reminder minute-of-day slot, carrying:
+ *   - ruleKey: stable identity `recurrence:<rhythm>:<minute>:<weekdays+>`,
+ *     so "one rule = one system registration" is addressable and idempotent
+ *     (re-registering the same configuration keeps the system registration);
+ *   - semanticKeyPrefix: the concrete occurrence key grammar the adapter
+ *     uses to build callback keys (`break-start:<rhythm>:` + date + minute);
+ *   - weekdays / minuteOfDay / repeatKind: what the platform schedules.
+ * Pure; requires valid ScheduleSettings (settings.js smart constructor).
  */
-export function buildRecurrenceRules(plan) {
+export function buildRecurrenceRules(settings) {
     const byMinute = {};
     const order = [];
+    const weekdays = (settings && settings.weekdays) || [];
+    const blocks = (settings && settings.workBlocks) || [];
+    const rhythm = settings && settings.rhythm;
 
-    for (let index = 0; index < (plan || []).length; index += 1) {
-        const intent = plan[index];
-        if (!intent || !intent.localDate || !intent.at) {
-            continue;
+    if (!rhythm || rhythm.focusMinutes === undefined || rhythm.breakMinutes === undefined) {
+        return Object.freeze([]);
+    }
+    const focusMinutes = rhythm.focusMinutes.value;
+    const breakMinutes = rhythm.breakMinutes.value;
+    const cycleMinutes = focusMinutes + breakMinutes;
+
+    for (let dayIndex = 0; dayIndex < weekdays.length; dayIndex += 1) {
+        const dayName = weekdays[dayIndex].value;
+        for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+            const block = blocks[blockIndex];
+            // Same slot formula as generateBlockPlan (plan.js): a break-start
+            // point exists when the full focus segment fits before the block
+            // ends. The template must agree with the concrete plan exactly.
+            let cycleStart = block.start.value;
+            while (cycleStart + focusMinutes <= block.end.value) {
+                const minute = cycleStart + focusMinutes;
+                if (!byMinute[minute]) {
+                    byMinute[minute] = { weekdays: {} };
+                    order.push(minute);
+                }
+                byMinute[minute].weekdays[dayName] = true;
+                cycleStart += cycleMinutes;
+            }
         }
-        const dayResult = weekdayOf(intent.localDate);
-        if (dayResult.tag === 'Err') {
-            continue;
-        }
-        const minute = intent.at.value;
-        if (!byMinute[minute]) {
-            byMinute[minute] = { weekdays: {} };
-            order.push(minute);
-        }
-        byMinute[minute].weekdays[dayResult.value.value] = true;
     }
 
+    const rhythmVersion = focusMinutes + '-' + breakMinutes;
     const rules = order.map(function (minute) {
+        const dayNames = Object.keys(byMinute[minute].weekdays).sort();
         return Object.freeze({
             tag: 'RecurrenceRule',
-            weekdays: Object.freeze(Object.keys(byMinute[minute].weekdays).sort()),
+            ruleKey: 'recurrence:' + rhythmVersion + ':' + minute + ':' + dayNames.join('+'),
+            semanticKeyPrefix: 'break-start:' + rhythmVersion + ':',
+            weekdays: Object.freeze(dayNames),
             minuteOfDay: minute,
             repeatKind: 'Weekly'
         });
     });
     return Object.freeze(rules);
+}
+
+function exception(ruleKey, occurrenceDate, action) {
+    return Object.freeze({
+        tag: 'RuleException',
+        ruleKey: ruleKey,
+        occurrenceDate: occurrenceDate,
+        action: action
+    });
+}
+
+/**
+ * Occurrence-level suppression expressed against the rule template (P1-01).
+ *
+ * A skip suppresses exactly one occurrence: the rule slot whose minute and
+ * weekday match the skipped semantic key, on the key's own date. A pause
+ * suppresses every rule occurrence at-or-before the pause point (same
+ * half-open semantics as applySuppression in plan.js). Exceptions are
+ * naturally bounded: the pause carries its end date, a skip carries one date.
+ *
+ * The adapter silences exactly these (rule, date) pairs when it expands or
+ * fires weekly rules; the rule template itself is never touched.
+ */
+export function buildRuleExceptions(state, facts) {
+    const exceptions = [];
+    const rules = buildRecurrenceRules(state.settings);
+    if (rules.length === 0) {
+        return Object.freeze(exceptions);
+    }
+
+    const skip = state.skip || noSkip();
+    if (skip.tag === 'SkipReminder' && skip.reminderKey &&
+        typeof skip.reminderKey.value === 'string') {
+        const parsed = parseBreakStartKey(skip.reminderKey.value);
+        if (parsed) {
+            const dayResult = weekdayOf(parsed.localDate);
+            if (dayResult.tag === 'Ok') {
+                for (let index = 0; index < rules.length; index += 1) {
+                    if (rules[index].minuteOfDay === parsed.minuteOfDay &&
+                        rules[index].weekdays.indexOf(dayResult.value.value) >= 0 &&
+                        rules[index].semanticKeyPrefix === 'break-start:' + parsed.rhythmVersion + ':') {
+                        exceptions.push(exception(rules[index].ruleKey, parsed.localDate, 'skip'));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    const pause = state.pause || noPause();
+    if (pause.tag === 'PauseThroughLocal' && facts && facts.localWall &&
+        facts.localWall.localDate) {
+        const start = facts.localWall.localDate;
+        const end = pause.localDate;
+        for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
+            const rule = rules[ruleIndex];
+            let date = start;
+            while (compareLocalDates(date, end) <= 0) {
+                const dayResult = weekdayOf(date);
+                if (dayResult.tag === 'Ok' && rule.weekdays.indexOf(dayResult.value.value) >= 0) {
+                    const atOrBeforePause = compareLocalDates(date, end) < 0 ||
+                        (compareLocalDates(date, end) === 0 &&
+                            rule.minuteOfDay <= pause.minuteOfDay.value);
+                    if (atOrBeforePause) {
+                        exceptions.push(exception(rule.ruleKey, date, 'pause'));
+                    }
+                }
+                const next = addDays(date, 1);
+                if (next.tag === 'Err') {
+                    break;
+                }
+                date = next.value;
+            }
+        }
+    }
+
+    return Object.freeze(exceptions);
+}
+
+/**
+ * Validate a reminder callback that arrived for a weekly-rule occurrence.
+ *
+ * The concrete plan lookup (buildSuppressedPlan) covers the reconcile
+ * horizon; the rule template validates the SAME window (documented rule:
+ * callback validity is decided by whether the suppressed plan contains the
+ * key, not by arrival time). This function bridges any plan/template
+ * divergence inside that window — e.g. a reconcile that failed to replace an
+ * old rule, or a callback whose key the current plan no longer generates —
+ * and rejects everything else (wrong weekday/minute/rhythm, suppressed
+ * occurrences, out-of-window dates).
+ *
+ * The occurrence's absolute due time is resolved per-day through the
+ * calendar resolver (DST: local calendar time, resolved per date), which is
+ * exactly the mapping the ReminderSchedulerPort/v2 contract defines for
+ * rule callbacks. Returns an intent-like value or undefined.
+ */
+export function findRuleOccurrence(state, keyValue, resolveLocal, windowStartDate, horizonDays) {
+    const parsed = parseBreakStartKey(keyValue);
+    if (!parsed) {
+        return undefined;
+    }
+    // Same window as buildSuppressedPlan: [windowStart, windowStart + horizon).
+    if (windowStartDate) {
+        const horizon = typeof horizonDays === 'number' ? horizonDays : 3;
+        if (compareLocalDates(parsed.localDate, windowStartDate) < 0) {
+            return undefined;
+        }
+        const end = addDays(windowStartDate, horizon);
+        if (end.tag === 'Err' || compareLocalDates(parsed.localDate, end.value) >= 0) {
+            return undefined;
+        }
+    }
+    const dayResult = weekdayOf(parsed.localDate);
+    if (dayResult.tag === 'Err') {
+        return undefined;
+    }
+    const rules = buildRecurrenceRules(state.settings);
+    let rule;
+    for (let index = 0; index < rules.length; index += 1) {
+        if (rules[index].minuteOfDay === parsed.minuteOfDay &&
+            rules[index].weekdays.indexOf(dayResult.value.value) >= 0 &&
+            rules[index].semanticKeyPrefix === 'break-start:' + parsed.rhythmVersion + ':') {
+            rule = rules[index];
+            break;
+        }
+    }
+    if (!rule) {
+        return undefined;
+    }
+    const skip = state.skip || noSkip();
+    if (skip.tag === 'SkipReminder' && skip.reminderKey &&
+        skip.reminderKey.value === keyValue) {
+        return undefined;
+    }
+    const pause = state.pause || noPause();
+    if (pause.tag === 'PauseThroughLocal') {
+        const dateOrder = compareLocalDates(parsed.localDate, pause.localDate);
+        if (dateOrder < 0 || (dateOrder === 0 && parsed.minuteOfDay <= pause.minuteOfDay.value)) {
+            return undefined;
+        }
+    }
+    if (typeof resolveLocal !== 'function') {
+        return undefined;
+    }
+    const minuteResult = minuteOfDay(parsed.minuteOfDay);
+    if (minuteResult.tag === 'Err') {
+        return undefined;
+    }
+    const resolved = resolveLocal(parsed.localDate, minuteResult.value);
+    if (resolved.tag === 'Err') {
+        return undefined;
+    }
+    const keyResult = semanticKey(keyValue);
+    if (keyResult.tag === 'Err') {
+        return undefined;
+    }
+    return Object.freeze({
+        tag: 'BreakStart',
+        key: keyResult.value,
+        localDate: parsed.localDate,
+        at: minuteResult.value,
+        dueAt: resolved.value
+    });
 }

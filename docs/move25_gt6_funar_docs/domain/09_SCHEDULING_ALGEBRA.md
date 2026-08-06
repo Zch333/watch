@@ -75,6 +75,20 @@ chooseSchedulingStrategy(capability, desiredPlan) -> Result<StrategyError, Regis
 可能策略：
 
 - `RecurringCalendarStrategy`：平台明确支持按星期重复；
+
+```text
+# 周规则模板（RecurringCalendarStrategy 的注册主体）
+rules = buildRecurrenceRules(settings)
+  # 从完整配置推导：每个配置星期 × 每个工作块的断点分钟（与具体计划同公式）
+  # ruleKey = recurrence:<rhythm>:<minute>:<weekdays+>   （一规则一系统注册）
+# 一次性抑制（跳过/暂停）以发生次级例外表达，绝不进入规则模板：
+exceptions = buildRuleExceptions(state, facts)
+  # skip  -> { ruleKey, occurrenceDate, action: 'skip' }
+  # pause -> 每个规则 × 暂停点前每个发生日 { ruleKey, occurrenceDate, action: 'pause' }
+# 回调以具体语义键上报（break-start:<rhythm>:<date>:<minute>），
+# 有效性 = 抑制后计划/规则模板含该键，不受到达时刻影响。
+```
+
 - `RollingWindowStrategy(days)`：按最大待处理数量选择 1–N 天窗口；
 - `SingleNextStrategy`：只有系统保证回调执行和续链可靠时才允许；
 - `UnsupportedStrategy`：拒绝启用可靠模式。

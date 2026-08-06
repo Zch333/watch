@@ -22,7 +22,9 @@ import {
     applyStrategyWindow,
     assertCanEnableReliable,
     buildRecurrenceRules,
-    chooseSchedulingStrategy
+    buildRuleExceptions,
+    chooseSchedulingStrategy,
+    findRuleOccurrence
 } from './policy.js';
 import {
     applySuppression,
@@ -155,7 +157,7 @@ function reconcileEffects(state, facts, extraEvents) {
         return evolved;
     }
     const rules = strategy && strategy.tag === 'RecurringCalendarStrategy'
-        ? buildRecurrenceRules(desired)
+        ? buildRecurrenceRules(state.settings)
         : undefined;
     if (rules && typeof strategy.maxPendingCount === 'number' &&
         rules.length > strategy.maxPendingCount) {
@@ -168,9 +170,17 @@ function reconcileEffects(state, facts, extraEvents) {
             capacity: strategy.maxPendingCount
         })));
     }
+    // Occurrence-level suppressions (skip/pause) are expressed against the
+    // rule template, never folded into it (P1-01/P1-02).
+    const exceptions = rules
+        ? buildRuleExceptions(state, facts)
+        : undefined;
     const effects = [
         cancelReminders(diff.toCancel),
-        registerReminders(diff.toRegister, rules)
+        registerReminders(diff.toRegister, rules, exceptions, {
+            now: facts.now,
+            expandDays: typeof facts.horizonDays === 'number' ? facts.horizonDays : DEFAULT_HORIZON_DAYS
+        })
     ];
     return ok(decision(events, effects));
 }
@@ -186,6 +196,30 @@ function decideSnapshot(state, events, extraEffects) {
         return evolved;
     }
     return ok(decision(events || [], extraEffects || []));
+}
+
+/**
+ * Every identity the system may hold, to be cancelled when the plan must
+ * hold NOTHING (disable, disabled-state orphan cleanup):
+ *   - all current template ruleKeys (a system registration is a RULE, not a
+ *     concrete occurrence — cancelling concrete keys would leave the weekly
+ *     rules firing, review P1-01). Always included, independent of the
+ *     current strategy: rules may still be registered when the capability
+ *     degraded after they were created, and re-asserting their cancellation
+ *     is idempotent (the adapter reports missing for unregistered keys);
+ *   - the registered concrete keys (one-shot mode).
+ * Union of both views keeps the cleanup total even across mode switches.
+ */
+function cancelKeysFor(state, facts) {
+    const registered = facts.registeredPlan || emptyPlan();
+    const keys = registered.map(function (intent) {
+        return intent.key.value;
+    });
+    const rules = buildRecurrenceRules(state.settings);
+    for (let index = 0; index < rules.length; index += 1) {
+        keys.push(rules[index].ruleKey);
+    }
+    return keys;
 }
 
 /**
@@ -248,10 +282,7 @@ export function decide(state, command, facts) {
         }
 
         case 'DisablePlan': {
-            const registered = factsValue.registeredPlan || emptyPlan();
-            const keys = registered.map(function (intent) {
-                return intent.key.value;
-            });
+            const keys = cancelKeysFor(state, factsValue);
             if (state.planLifecycle.tag === 'Disabled') {
                 if (keys.length === 0) {
                     // State and registry are both off: truly idempotent.
@@ -386,12 +417,17 @@ export function decide(state, command, facts) {
             }
 
             // Stale callbacks after disable/block must not pop a break prompt.
+            // During Enabling no callback may legitimately arrive either: the
+            // registration has not been confirmed, so a misfire there is
+            // ignored and recorded, not promoted to a Due prompt (P3-03).
+            // The diagnostic distinguishes the two causes.
             if (state.planLifecycle.tag !== 'Enabled' &&
-                state.planLifecycle.tag !== 'Paused' &&
-                state.planLifecycle.tag !== 'Enabling') {
+                state.planLifecycle.tag !== 'Paused') {
                 return decideSnapshot(state, [], [
                     emitDiagnostic({
-                        tag: 'ReminderIgnoredWhileDisabled',
+                        tag: state.planLifecycle.tag === 'Enabling'
+                            ? 'ReminderIgnoredWhileEnabling'
+                            : 'ReminderIgnoredWhileDisabled',
                         reminderKey: keyValue,
                         at: firedAt
                     })
@@ -416,7 +452,23 @@ export function decide(state, command, facts) {
             if (suppressedResult.tag === 'Err') {
                 return suppressedResult;
             }
-            const intent = findIntentByKey(suppressedResult.value, keyValue);
+            let intent = findIntentByKey(suppressedResult.value, keyValue);
+            if (!intent) {
+                // A weekly-rule occurrence inside the reconcile window may be
+                // missing from the plan (e.g. a reconcile that failed to
+                // replace an old rule): validate it against the full rule
+                // template + suppression instead of dropping it (P1-01:
+                // rule callback -> concrete key mapping). Out-of-window or
+                // template-mismatched keys are still stale.
+                const localWall = factsValue.localWall;
+                intent = findRuleOccurrence(
+                    state,
+                    keyValue,
+                    resolveLocalFrom(factsValue),
+                    localWall && localWall.localDate,
+                    factsValue.horizonDays
+                );
+            }
             if (!intent) {
                 return decideSnapshot(state, [], [
                     emitDiagnostic({
@@ -552,16 +604,15 @@ export function decide(state, command, facts) {
             if (!active) {
                 // Disabled or Blocked: the system must not hold any Move25
                 // reminders. Cancel leftovers without touching domain state,
-                // so a previously failed disable can finally converge.
-                const registered = factsValue.registeredPlan || emptyPlan();
-                const orphanKeys = registered.map(function (intent) {
-                    return intent.key.value;
-                });
-                if (orphanKeys.length === 0) {
+                // so a previously failed disable can finally converge. In
+                // rule mode the leftovers are weekly rules (by ruleKey), not
+                // concrete occurrences (review P1-01).
+                const keys = cancelKeysFor(state, factsValue);
+                if (keys.length === 0) {
                     return ok(decision([], []));
                 }
                 return decideSnapshot(state, [], [
-                    cancelReminders(orphanKeys)
+                    cancelReminders(keys)
                 ]);
             }
             return reconcileEffects(state, factsValue, []);
@@ -602,7 +653,10 @@ function startActiveBreak(state, factsValue, reminderKey, acknowledged) {
         return endsAtResult;
     }
     const selected = selectNextGuidance(state.guidanceIndex);
-    const sessionId = 'break-' + now.epochMilliseconds;
+    // Monotonic session identity: the revision the new state will carry is
+    // unique per command and persists across restarts, so two sessions can
+    // never collide even at the same clock instant (P3-01).
+    const sessionId = 'break-' + (state.revision + 1);
     const effects = acknowledged
         ? [navigate('break-active')]
         : [vibrate('BreakStart'), navigate('break-active')];

@@ -44,15 +44,19 @@
 事件使用已经发生的过去式：
 
 - `ScheduleConfigured`
+- `PlanEnableRequested`
 - `PlanEnabled`
-- `PlanPausedUntil`
+- `PlanDisabled`
+- `PlanPaused`
+- `PlanResumed`
+- `PlanBlocked`
 - `NextReminderSkipped`
-- `ReminderPlanComputed`
-- `ReminderRegistrationFailed`
+- `PlanReconciled`
 - `BreakBecameDue`
 - `BreakStarted`
-- `BreakCompleted`
+- `BreakFinished`
 - `BreakSkipped`
+- `BreakAcknowledged`
 - `CapabilityObserved`
 
 事件不是 UI 点击日志，也不是任意调试字符串。

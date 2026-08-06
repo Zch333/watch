@@ -40,19 +40,27 @@ function commandNeedsRegisteredPlan(command) {
 /**
  * Map a register() port result to the domain settlement ADT:
  *   { tag: 'Registered' } | { tag: 'Partial', failedKeys } | { tag: 'Failed', code, failedKeys }
+ *
+ * The registration SUBJECT follows the effect mode (P1-01): one-shot mode
+ * counts concrete intents and failed entries carry `key`; rule mode counts
+ * weekly rules and failed entries carry `ruleKey`. Settlement must judge
+ * Partial/Failed against the same subject the platform registered.
  */
-function toRegistrationOutcome(result, intents) {
+function toRegistrationOutcome(result, effect) {
     if (result.tag === 'Ok') {
         return { tag: 'Registered' };
     }
     const details = (result.error && result.error.details) || {};
+    const isRuleMode = Array.isArray(effect.recurrenceRules) && effect.recurrenceRules.length > 0;
     const failed = ((details.failed || []).map(function (item) {
-        return item && item.key;
+        return item && (isRuleMode ? item.ruleKey : item.key);
     })).filter(function (key) {
         return typeof key === 'string';
     });
     const registeredCount = (details.registered || []).length;
-    const total = (intents || []).length;
+    const total = isRuleMode
+        ? (effect.recurrenceRules || []).length
+        : (effect.intents || []).length;
     if (failed.length > 0 && registeredCount > 0 && failed.length < total) {
         return { tag: 'Partial', failedKeys: failed };
     }
@@ -130,7 +138,6 @@ export function createCommandHandler(ports) {
         // Precision facts: only commands that diff against the registered plan
         // pay for listRegistered; a failure there must never be read as "empty".
         let registeredPlan = [];
-        let listFailure;
         if (commandNeedsRegisteredPlan(command)) {
             const listResult = ports.reminders.listRegistered(REMINDER_NAMESPACE);
             if (listResult.tag === 'Err') {
@@ -195,7 +202,7 @@ export function createCommandHandler(ports) {
             const result = interpretEffect(effect, ports);
             results.push(Object.freeze({ effectTag: effect.tag, result: result }));
             if (effect.tag === 'RegisterReminders') {
-                registration = toRegistrationOutcome(result, effect.intents);
+                registration = toRegistrationOutcome(result, effect);
             }
             if (result.tag === 'Err') {
                 ports.diagnostics.append(Object.freeze({
@@ -287,8 +294,7 @@ export function createCommandHandler(ports) {
             decision: decision,
             appliedEvents: events,
             results: results,
-            facts: facts,
-            listFailure: listFailure
+            facts: facts
         };
     };
 }

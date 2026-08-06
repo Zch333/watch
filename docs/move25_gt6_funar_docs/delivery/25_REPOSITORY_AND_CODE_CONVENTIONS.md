@@ -21,14 +21,12 @@ entry/src/main/js/MainAbility/
     commands.js
     events.js
     state.js
-    decisions.js
+    decide.js
+    settle.js
+    evolve.js
+    policy.js
+    snapshot.js
     errors.js
-  workflows/
-    configure-schedule.js
-    enable-plan.js
-    reconcile-plan.js
-    handle-reminder.js
-    break-session.js
   ports/
     clock-port.js
     calendar-port.js
@@ -36,6 +34,7 @@ entry/src/main/js/MainAbility/
     reminder-port.js
     haptics-port.js
     diagnostic-port.js
+    navigation-port.js
   adapters/
     ui/
     storage/
@@ -45,11 +44,15 @@ entry/src/main/js/MainAbility/
     diagnostics/
   pages/
     home/
-    break/
+    break-due/
+    break-active/
     settings/
+    more/
     diagnostics/
   tests-host/
 ```
+
+> 当前实现没有独立 `workflows/` 目录：工作流体现为 `domain/decide.js` 的命令分支管道 + `app/command-handler.js` 的"取事实→纯决策→解释效果→结算→持久化"外壳。若后续工作流增多需要独立目录，再按依赖方向抽出，不改变架构。
 
 具体路径以 DevEco Lite 模板为准，但依赖方向保持不变。
 

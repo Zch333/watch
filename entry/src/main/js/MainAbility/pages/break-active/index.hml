@@ -1,7 +1,10 @@
 <div class="container">
-    <text class="title">活动进行中</text>
+    <text class="title" if="{{!finished}}">活动进行中</text>
+    <text class="title" if="{{finished}}">活动已结束</text>
     <text class="countdown">{{remainingText}}</text>
     <text class="action" for="{{actions}}">{{$item}}</text>
-    <button class="btn primary" onclick="onComplete">提前完成</button>
-    <button class="btn" onclick="onSkip">跳过</button>
+    <text class="error" if="{{hasError}}">{{errorText}}</text>
+    <button class="btn primary" if="{{!finished}}" onclick="onComplete">提前完成</button>
+    <button class="btn" if="{{!finished}}" onclick="onSkip">跳过</button>
+    <button class="btn" onclick="onHome">返回首页</button>
 </div>

@@ -45,6 +45,8 @@ Move25：面向 HUAWEI WATCH GT 6（Lite Wearable）的工作—活动节律提�
 
 ## 文档体系
 
+**必须参考`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者.html`&`轻量级智能穿戴应用开发-穿戴-多端设备体验提升 - 华为HarmonyOS开发者_files`**
+
 阅读入口：`docs/move25_gt6_funar_docs/README.md`（文档地图 + 推荐阅读顺序；`Move25_FUNAR_开发总册.md` 为自动合并版，各分册才是事实源）。
 
 - `00_ARCHITECTURE_CHARTER.md` — 架构宪章：使命、原则落地、非目标、不可违背规则

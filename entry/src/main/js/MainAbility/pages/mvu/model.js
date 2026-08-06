@@ -15,7 +15,6 @@ function formatMinute(minuteValue) {
 export function initialUiModel() {
     return Object.freeze({
         tag: 'UiModel',
-        route: 'home',
         planStatus: 'Unknown',
         nextBreakText: '—',
         remainingSeconds: 0,
@@ -144,7 +143,6 @@ export function projectModel(state, facts, errors) {
 
     return Object.freeze({
         tag: 'UiModel',
-        route: state.route || 'home',
         planStatus: state.planLifecycle ? state.planLifecycle.tag : 'Unknown',
         nextBreakText: nextBreakText,
         remainingSeconds: remainingSeconds,

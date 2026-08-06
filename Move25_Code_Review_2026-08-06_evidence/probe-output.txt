@@ -1,0 +1,5 @@
+recurrenceRules count = 15
+rule weekdays union   = Fri,Thu,Wed
+intent dates          = 2026-8-5, 2026-8-6, 2026-8-7
+configured weekdays   = Mon,Tue,Wed,Thu,Fri
+missing from rules    = Mon,Tue

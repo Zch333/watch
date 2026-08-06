@@ -115,21 +115,27 @@ Command =
   | EnablePlan
   | DisablePlan
   | PauseUntil(instant)
+  | PauseForOneHour
+  | PauseForToday
   | SkipNext
   | StartBreak(reminderKey)
+  | StartBreakNow
   | CompleteBreak
+  | SkipBreak
+  | AcknowledgeBreakFinished
   | HandleReminderFired(reminderKey, firedAt)
   | ReconcilePlan(now)
+  | ObserveCapability(capability)
 
 Effect =
-  | PersistSnapshot(snapshot)
-  | QueryRegisteredReminders
-  | RegisterReminders(intents)
+  | RegisterReminders(intents, recurrenceRules?, ruleExceptions?, now?, expandDays?)
   | CancelReminders(keys)
   | Vibrate(pattern)
   | Navigate(route)
   | EmitDiagnostic(entry)
 ```
+
+> 持久化**不是效果**：命令处理器在结算后直接经存储端口保存最终快照（见 `13_FUNCTIONAL_CORE_AND_EFFECT_SHELL.md`），因此效果目录不含 `PersistSnapshot`/`QueryRegisteredReminders`——注册表查询是命令处理器收集的 Facts（`registeredPlan`），不是领域发出的效果。
 
 ## 6. 决策函数
 
