@@ -47,3 +47,22 @@ export function planReconciled(diff) {
     return event('PlanReconciled', { diff: diff });
 }
 
+export function capabilityObserved(capability) {
+    return event('CapabilityObserved', { capability: capability });
+}
+
+export function breakSkipped(sessionId, finishedAt) {
+    return event('BreakSkipped', {
+        sessionId: sessionId,
+        finishedAt: finishedAt
+    });
+}
+
+export function breakAcknowledged(sessionId) {
+    return event('BreakAcknowledged', { sessionId: sessionId });
+}
+
+export function suppressionCleared() {
+    return event('SuppressionCleared');
+}
+

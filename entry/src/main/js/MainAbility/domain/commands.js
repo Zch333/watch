@@ -30,11 +30,35 @@ export function completeBreak() {
     return command('CompleteBreak');
 }
 
+export function skipBreak() {
+    return command('SkipBreak');
+}
+
+export function startBreakNow() {
+    return command('StartBreakNow');
+}
+
+export function acknowledgeBreakFinished() {
+    return command('AcknowledgeBreakFinished');
+}
+
 export function handleReminderFired(reminderKey, firedAt) {
     return command('HandleReminderFired', { reminderKey: reminderKey, firedAt: firedAt });
 }
 
 export function reconcilePlan(now) {
     return command('ReconcilePlan', { now: now });
+}
+
+export function observeCapability(capability) {
+    return command('ObserveCapability', { capability: capability });
+}
+
+export function pauseForOneHour(nowInstant) {
+    return command('PauseForOneHour', { now: nowInstant });
+}
+
+export function pauseForToday(endOfDayInstant) {
+    return command('PauseForToday', { until: endOfDayInstant });
 }
 

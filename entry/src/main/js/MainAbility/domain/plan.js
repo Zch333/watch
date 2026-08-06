@@ -1,3 +1,4 @@
+import { compareLocalDates, weekdayOf } from './calendar.js';
 import { semanticKey } from './values.js';
 
 function pad(value, length) {
@@ -13,13 +14,7 @@ function dateText(date) {
 }
 
 function compareDates(left, right) {
-    if (left.year !== right.year) {
-        return left.year - right.year;
-    }
-    if (left.month !== right.month) {
-        return left.month - right.month;
-    }
-    return left.day - right.day;
+    return compareLocalDates(left, right);
 }
 
 function compareIntents(left, right) {
@@ -80,6 +75,75 @@ export function generateBlockPlan(date, block, rhythmValue) {
     }
 
     return freezePlan(intents);
+}
+
+export function generateDayPlan(date, workBlocks, rhythmValue) {
+    let plan = freezePlan([]);
+    const blocks = workBlocks || [];
+    for (let index = 0; index < blocks.length; index += 1) {
+        plan = combinePlans(plan, generateBlockPlan(date, blocks[index], rhythmValue));
+    }
+    return plan;
+}
+
+function weekdayEnabled(settings, date) {
+    const dayResult = weekdayOf(date);
+    if (dayResult.tag === 'Err') {
+        return false;
+    }
+    const name = dayResult.value.value;
+    for (let index = 0; index < settings.weekdays.length; index += 1) {
+        if (settings.weekdays[index].value === name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Generate plan over an explicit list of LocalDate values using schedule settings.
+ */
+export function generateRangePlan(dates, settings) {
+    let plan = freezePlan([]);
+    const list = dates || [];
+    for (let index = 0; index < list.length; index += 1) {
+        const date = list[index];
+        if (!weekdayEnabled(settings, date)) {
+            continue;
+        }
+        plan = combinePlans(plan, generateDayPlan(date, settings.workBlocks, settings.rhythm));
+    }
+    return plan;
+}
+
+/**
+ * First intent strictly after the given local wall time, or undefined.
+ */
+export function firstFutureIntent(plan, localDateValue, minuteOfDayValue) {
+    for (let index = 0; index < plan.length; index += 1) {
+        const intent = plan[index];
+        const dateOrder = compareDates(intent.localDate, localDateValue);
+        if (dateOrder > 0) {
+            return intent;
+        }
+        if (dateOrder === 0 && intent.at.value > minuteOfDayValue.value) {
+            return intent;
+        }
+    }
+    return undefined;
+}
+
+export function findIntentByKey(plan, keyValue) {
+    for (let index = 0; index < plan.length; index += 1) {
+        if (plan[index].key.value === keyValue) {
+            return plan[index];
+        }
+    }
+    return undefined;
+}
+
+export function emptyPlan() {
+    return freezePlan([]);
 }
 
 export function combinePlans(left, right) {
