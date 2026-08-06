@@ -292,6 +292,136 @@ test('example: a stale firing is ignored with only a diagnostic', () => {
     }), true);
 });
 
+test('example: a firing arriving after disable is ignored', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const disabled = decide(state, disablePlan(), factsAt(2026, 8, 6, 600));
+    assert.equal(disabled.tag, 'Ok');
+    state = evolveOk(state, disabled.value.events);
+    assert.equal(state.planLifecycle.tag, 'Disabled');
+
+    // A stale callback for a key that used to be in the plan must not pop a prompt.
+    const fired = factsAt(2026, 8, 6, 625);
+    const result = decide(
+        state,
+        handleReminderFired('break-start:25-5:2026-08-06:625', fired.now),
+        fired
+    );
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.events.length, 0);
+    assert.equal(result.value.effects.some(function (e) {
+        return e.tag === 'EmitDiagnostic';
+    }), true);
+    const kept = evolveOk(state, result.value.events);
+    assert.equal(kept.breakSession.tag, 'NoBreak');
+});
+
+test('example: a duplicate firing while due is idempotent', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    assert.equal(due.tag, 'Ok');
+    state = evolveOk(state, due.value.events);
+    assert.equal(state.breakSession.tag, 'Due');
+
+    const dup = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), factsAt(2026, 8, 6, 626));
+    assert.equal(dup.tag, 'Ok');
+    assert.equal(dup.value.events.length, 0);
+    assert.equal(dup.value.effects.some(function (e) {
+        return e.tag === 'EmitDiagnostic';
+    }), true);
+    const kept = evolveOk(state, dup.value.events);
+    assert.equal(kept.breakSession.tag, 'Due');
+    assert.equal(kept.breakSession.reminderKey.value, 'break-start:25-5:2026-08-06:625');
+});
+
+test('example: a duplicate firing never clobbers an active break session', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    state = evolveOk(state, due.value.events);
+    const started = decide(state, startBreak('break-start:25-5:2026-08-06:625'), factsAt(2026, 8, 6, 625));
+    state = evolveOk(state, started.value.events);
+    assert.equal(state.breakSession.tag, 'Active');
+    const sessionId = state.breakSession.sessionId;
+    const endsAt = state.breakSession.endsAt.epochMilliseconds;
+
+    // System redelivers the same callback mid-break: the Active session must survive.
+    const dup = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), factsAt(2026, 8, 6, 626));
+    assert.equal(dup.tag, 'Ok');
+    assert.equal(dup.value.events.length, 0);
+    const kept = evolveOk(state, dup.value.events);
+    assert.equal(kept.breakSession.tag, 'Active');
+    assert.equal(kept.breakSession.sessionId, sessionId);
+    assert.equal(kept.breakSession.endsAt.epochMilliseconds, endsAt);
+});
+
+test('example: a firing for another key while a session is pending is ignored', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    state = evolveOk(state, due.value.events);
+
+    const second = decide(state, handleReminderFired('break-start:25-5:2026-08-06:655', fired.now), factsAt(2026, 8, 6, 626));
+    assert.equal(second.tag, 'Ok');
+    assert.equal(second.value.events.length, 0);
+    const kept = evolveOk(state, second.value.events);
+    assert.equal(kept.breakSession.tag, 'Due');
+    assert.equal(kept.breakSession.reminderKey.value, 'break-start:25-5:2026-08-06:625');
+});
+
+test('example: a later firing supersedes a finished session', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    state = evolveOk(state, due.value.events);
+    const started = decide(state, startBreak('break-start:25-5:2026-08-06:625'), factsAt(2026, 8, 6, 625));
+    state = evolveOk(state, started.value.events);
+    state = evolveOk(state, [{
+        tag: 'BreakFinished',
+        sessionId: state.breakSession.sessionId,
+        finishedAt: factsAt(2026, 8, 6, 630).now,
+        outcome: { tag: 'Completed' }
+    }]);
+    assert.equal(state.breakSession.tag, 'Finished');
+
+    // The next cycle's reminder (10:55) fires while the previous outcome is
+    // still on screen: the new prompt supersedes the finished session.
+    const next = decide(state, handleReminderFired('break-start:25-5:2026-08-06:655', fired.now), factsAt(2026, 8, 6, 655));
+    assert.equal(next.tag, 'Ok');
+    assert.equal(next.value.events[0].tag, 'BreakBecameDue');
+    const kept = evolveOk(state, next.value.events);
+    assert.equal(kept.breakSession.tag, 'Due');
+    assert.equal(kept.breakSession.reminderKey.value, 'break-start:25-5:2026-08-06:655');
+});
+
+test('example: a delayed callback within the same day still becomes due', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    // Reminder scheduled for 10:25, delivered late at 10:40 while the app was
+    // backgrounded: the key is still part of the suppressed plan, so it is due.
+    const fired = factsAt(2026, 8, 6, 640);
+    const result = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.events[0].tag, 'BreakBecameDue');
+    const kept = evolveOk(state, result.value.events);
+    assert.equal(kept.breakSession.tag, 'Due');
+});
+
+test('example: the same instant in another timezone projects a different plan', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    // Wall 10:00 UTC+8 is 02:00 UTC on the same day. The shell feeds facts
+    // derived from the current offset, so the desired plan starts at 09:25 UTC.
+    const now = factsAt(2026, 8, 6, 600).now;
+    const desired = buildDesiredPlanForState(state, {
+        now: now,
+        localWall: { localDate: date(2026, 8, 6), minuteOfDay: minute(120) },
+        utcOffsetMinutes: 0,
+        registeredPlan: [],
+        horizonDays: 3
+    });
+    assert.equal(desired.tag, 'Ok');
+    assert.equal(desired.value[0].key.value, 'break-start:25-5:2026-08-06:565');
+});
+
 test('example: start break from due creates an active session ending at +5 minutes', () => {
     let state = enabledStateAt(2026, 8, 6, 600);
     const fired = factsAt(2026, 8, 6, 625);

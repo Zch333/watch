@@ -297,6 +297,34 @@ export function decide(state, command, facts) {
             if (localWallResult.tag === 'Err') {
                 return localWallResult;
             }
+
+            // Stale callbacks after disable/block must not pop a break prompt.
+            if (state.planLifecycle.tag !== 'Enabled' &&
+                state.planLifecycle.tag !== 'Paused' &&
+                state.planLifecycle.tag !== 'Enabling') {
+                return decideSnapshot(state, [], [
+                    emitDiagnostic({
+                        tag: 'ReminderIgnoredWhileDisabled',
+                        reminderKey: keyValue,
+                        at: command.firedAt || factsValue.now
+                    })
+                ]);
+            }
+
+            // Idempotency: one session at a time. A duplicate or overlapping
+            // firing while a prompt is pending or a break is running must never
+            // clobber the current session.
+            if (state.breakSession.tag === 'Due' || state.breakSession.tag === 'Active') {
+                return decideSnapshot(state, [], [
+                    emitDiagnostic({
+                        tag: 'DuplicateReminderIgnored',
+                        reminderKey: keyValue,
+                        sessionTag: state.breakSession.tag,
+                        at: command.firedAt || factsValue.now
+                    })
+                ]);
+            }
+
             const suppressedResult = buildSuppressedPlan(state, factsValue);
             if (suppressedResult.tag === 'Err') {
                 return suppressedResult;
