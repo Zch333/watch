@@ -1,5 +1,4 @@
-import { dispatch, refresh } from '../_app-shell.js';
-import router from '@system.router';
+import { dispatch, refresh, navigateTo } from '../_app-shell.js';
 
 function statusText(tag) {
     const map = {
@@ -27,13 +26,15 @@ export default {
     },
     render() {
         const model = refresh();
-        this.data.capabilityText = model.capabilityBanner.text;
-        this.data.capabilityLevel = model.capabilityBanner.level;
-        this.data.planStatusText = statusText(model.planStatus);
-        this.data.nextBreak = model.nextBreakText;
+        // Lite JS FA binds page instance fields (declared in `data`), so the
+        // template is updated by writing `this.<field>`, not `this.data.<field>`.
+        this.capabilityText = model.capabilityBanner.text;
+        this.capabilityLevel = model.capabilityBanner.level;
+        this.planStatusText = statusText(model.planStatus);
+        this.nextBreak = model.nextBreakText;
         const errors = model.errors || [];
-        this.data.hasError = errors.length > 0;
-        this.data.errorText = errors.length > 0 ? (errors[0].text || errors[0].code || '') : '';
+        this.hasError = errors.length > 0;
+        this.errorText = errors.length > 0 ? (errors[0].text || errors[0].code || '') : '';
     },
     onStartNow() {
         dispatch({ tag: 'StartNowPressed' });
@@ -61,9 +62,9 @@ export default {
         this.render();
     },
     onSettings() {
-        router.replace({ uri: 'pages/settings/index' });
+        navigateTo('settings');
     },
     onDiagnostics() {
-        router.replace({ uri: 'pages/diagnostics/index' });
+        navigateTo('diagnostics');
     }
 };

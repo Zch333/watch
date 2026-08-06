@@ -1,5 +1,4 @@
-import { diagnosticsSnapshot } from '../_app-shell.js';
-import router from '@system.router';
+import { diagnosticsSnapshot, navigateTo } from '../_app-shell.js';
 
 export default {
     data: {
@@ -17,10 +16,11 @@ export default {
         if (!snapshot) {
             return;
         }
-        this.data.planStatus = snapshot.planLifecycle;
-        this.data.capability = snapshot.capability ? snapshot.capability.tag : 'Unknown';
-        this.data.registeredCount = snapshot.registeredKeys.length;
-        this.data.storeRevision = snapshot.storeRevision;
+        // Lite JS FA binds page instance fields; write this.<field> not this.data.<field>.
+        this.planStatus = snapshot.planLifecycle;
+        this.capability = snapshot.capability ? snapshot.capability.tag : 'Unknown';
+        this.registeredCount = snapshot.registeredKeys.length;
+        this.storeRevision = snapshot.storeRevision;
         const lines = [];
         const entries = snapshot.entries || [];
         for (let index = entries.length - 1; index >= Math.max(0, entries.length - 8); index -= 1) {
@@ -34,12 +34,12 @@ export default {
             }
             lines.push(line);
         }
-        this.data.entries = lines;
+        this.entries = lines;
     },
     onRefresh() {
         this.render();
     },
     onHome() {
-        router.replace({ uri: 'pages/home/index' });
+        navigateTo('home');
     }
 };

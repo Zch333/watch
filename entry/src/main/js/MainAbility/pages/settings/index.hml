@@ -7,6 +7,8 @@
         <text class="chip {{weekdayClass2}}" onclick="onWeekdayTap(2)">三</text>
         <text class="chip {{weekdayClass3}}" onclick="onWeekdayTap(3)">四</text>
         <text class="chip {{weekdayClass4}}" onclick="onWeekdayTap(4)">五</text>
+        <text class="chip {{weekdayClass5}}" onclick="onWeekdayTap(5)">六</text>
+        <text class="chip {{weekdayClass6}}" onclick="onWeekdayTap(6)">日</text>
     </div>
     <text class="label">工作时段</text>
     <text class="chip wide {{blockClass0}}" onclick="onBlockTap(0)">09:00–12:00 / 13:30–18:00</text>

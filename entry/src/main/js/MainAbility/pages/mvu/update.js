@@ -79,6 +79,12 @@ export function update(model, msg) {
                 commands: msg.now ? [reconcilePlan(msg.now)] : []
             };
 
+        case 'BreakElapsed': {
+            // Visible countdown reached zero: let the shell reduce the expired
+            // Active session (absolute time) instead of trusting this page.
+            return { model: model, commands: [reconcilePlan()] };
+        }
+
         case 'TickVisible': {
             // Visible-only countdown: recompute from the absolute endsAt.
             const remaining = model.endsAtEpochMs > 0 && typeof msg.now === 'number'

@@ -155,6 +155,21 @@ export function getState() {
     return state;
 }
 
+/**
+ * Page navigation through the NavigationPort. Pages must never import the
+ * platform router directly; the port is wired to the platform adapter by the
+ * composition root (device) or the recording adapter (host).
+ */
+export function navigateTo(route) {
+    if (!app || !app.ports || !app.ports.navigation) {
+        return Object.freeze({
+            tag: 'Err',
+            error: Object.freeze({ tag: 'NavigationError', code: 'NAVIGATION_UNAVAILABLE', details: route })
+        });
+    }
+    return app.ports.navigation.navigate(route);
+}
+
 export function diagnosticsSnapshot() {
     if (!app) {
         return null;
