@@ -23,6 +23,7 @@
                 <text class="chip {{rhythmClass2}}" onclick="onRhythmTap(2)">45/15</text>
                 <text class="chip {{rhythmClass3}}" onclick="onRhythmTap(3)">30/5</text>
             </div>
+            <text class="error" show="{{hasError}}">{{errorText}}</text>
             <button class="btn primary" onclick="onSave">保存</button>
         </div>
     </list-item>

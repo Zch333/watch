@@ -1,6 +1,6 @@
 import { domainError, ERROR_CODES } from './errors.js';
 import { planBlocked, planEnabled } from './events.js';
-import { ok } from './result.js';
+import { err, ok } from './result.js';
 
 /**
  * settlePlanLifecycle(state, events, registration) -> Result<DomainError, DomainEvent[]>
@@ -30,6 +30,18 @@ export function settlePlanLifecycle(state, events, registration) {
         return event.tag === 'PlanEnabled';
     });
     const awaiting = !!(state && state.planLifecycle && state.planLifecycle.tag === 'Enabling');
+
+    // A decision that claims Enabled must always be backed by a registration
+    // outcome. Missing means the shell lost the effect report — that is a
+    // shell defect, never a silent success.
+    if (hasEnable && !registration) {
+        return err(domainError(ERROR_CODES.MISSING_REGISTRATION_OUTCOME, Object.freeze({
+            tag: 'MissingRegistrationOutcome',
+            events: list.map(function (event) {
+                return event.tag;
+            })
+        })));
+    }
 
     if (!registration || registration.tag === 'Registered') {
         if (hasEnable || !awaiting) {

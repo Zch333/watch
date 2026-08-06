@@ -112,21 +112,24 @@ test('policy: RollingWindow excludes past intents even inside the window', () =>
     assert.equal(result[0].at.value, 590);
 });
 
-test('policy: RecurringCalendar passes the plan through bounded by capacity', () => {
+test('policy: RecurringCalendar passes the full plan through untruncated', () => {
     const d = date(2026, 8, 6);
     const plan = [
         intent(d, 565, T0 + 1 * HOUR),
         intent(d, 590, T0 + 2 * HOUR),
         intent(d, 615, T0 + 3 * HOUR)
     ];
+    // Concrete-date truncation here would silently drop weekdays from the
+    // weekly recurrence rules (review P1-06); capacity is checked on the
+    // folded RULE count by the caller (reconcileEffects), not on intents.
     const result = applyStrategyWindow(
         plan,
         { tag: 'RecurringCalendarStrategy', maxPendingCount: 2 },
         instantAt(T0)
     );
-    assert.equal(result.length, 2);
+    assert.equal(result.length, 3);
     assert.equal(result[0].at.value, 565);
-    assert.equal(result[1].at.value, 590);
+    assert.equal(result[2].at.value, 615);
 });
 
 test('policy: buildRecurrenceRules collapses concrete dates into weekly weekday+minute rules', () => {

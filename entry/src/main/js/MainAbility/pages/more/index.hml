@@ -17,4 +17,5 @@
             <text class="label">诊断</text>
         </list-item>
     </list>
+    <text class="error" show="{{hasError}}">{{errorText}}</text>
 </div>

@@ -1,1878 +1,1941 @@
-# Move25 / Zch333-watch 代码审阅报告
+# Move25 for HUAWEI WATCH GT 6 代码审阅报告
 
-- 仓库：`Zch333/watch`
-- 审阅分支：`master`
-- 审阅基线：最新可见提交 `b31d774ebed2a36b4e60a237be6d24d4ef29d5f0`
-- 审阅日期：2026-08-06
-- 目标设备：HUAWEI WATCH GT 6 / Lite Wearable
-- 架构基线：FUNAR × Functional DDD × Hexagonal Architecture × MVU
-- 审阅方式：GitHub 静态代码审阅与华为官方公开资料交叉核对
-- 限制：本报告未在本地 DevEco Studio、Lite 模拟器或 GT6 真机上编译运行，因此不会把仓库 README 中的测试状态或平台能力当作独立验证结论。
+## 一、审阅结论
 
----
+### 1. 总体判断
 
-## 1. 执行摘要
+该项目的**架构方向明显高于普通原型项目**：
 
-### 1.1 总体结论
+- 领域核心与平台副作用分离；
+- 使用 Ports & Adapters 隔离时钟、日历、存储、提醒、振动和导航；
+- 采用 `decide → effect → settle → evolve → persist` 的函数式工作流；
+- 对提醒能力使用显式门禁，而不是在平台能力未经验证时伪装“已支持”；
+- 使用语义键、绝对时间和乐观并发控制处理提醒对账；
+- 已建立较完整的宿主测试、端口契约测试和架构适应度测试。
 
-该仓库的**架构方向明显高于普通原型项目**：
+项目产品文档明确要求：25/5 节律、本地运行、低功耗、无需联网、不依赖手机端应用，并且只有在系统能力真实可用时才能向用户显示“已启用”。
 
-- 领域规则已经从 UI 和平台 API 中分离；
-- 使用不可变记录、带标签联合类型、显式 `Result`、纯 `decide/evolve`；
-- 端口、内存适配器、效果解释器和 MVU 已具雏形；
-- 对后台提醒能力保持审慎，没有用长 `setTimeout`/`setInterval` 冒充可靠后台能力；
-- 测试覆盖意识较强，包含性质测试、状态机测试、契约测试和随机命令序列走查。
+但是，当前版本仍属于**架构验证阶段，而非可发布产品**。主要原因不是领域建模薄弱，而是应用壳层存在几个会破坏状态一致性的缺陷，且真实设备适配器尚未接入。
 
-但是，当前代码仍然是**宿主可验证的架构原型，不是可在 GT6 上使用的产品**。最严重的问题是：
+### 2. 发布判定
 
-1. 正式入口仍装配宿主内存适配器；
-2. 启动时固定时钟没有初始值，存在直接崩溃路径；
-3. 系统效果失败后，状态仍可能演化成“已启用”；
-4. 没有真实存储、振动、提醒或设备时间适配器；
-5. 5 分钟活动倒计时不会持续刷新，也没有后台结束提醒；
-6. 多数页面使用 `this.data.xxx` 写值，可能无法触发 Lite JS 页面响应式更新；
-7. 首页和设置页在 466×466 圆屏上明显超出可视区域；
-8. 设置页默认选择 50/10，保存时可能把领域默认 25/5 静默改掉；
-9. 时区变化不会使同一语义键的提醒重新注册；
-10. 签名、包名、首页和平台能力仍未完成。
-
-### 1.2 评分
-
-| 维度 | 评分 | 结论 |
-|---|---:|---|
-| 架构思想 | 8/10 | 边界与纯函数设计较成熟 |
-| 领域建模 | 7.5/10 | 基本完整，但调度物化和效果结果建模不足 |
-| 宿主测试设计 | 8/10 | 覆盖面较好；本报告未独立执行 |
-| Lite Wearable 平台集成 | 1/10 | 真实适配器尚未实现 |
-| UI 可用性 | 3/10 | 信息完整，但圆屏布局和响应式写法风险很高 |
-| 低功耗设计 | 7/10 | 原则正确，关键系统调度能力尚未落地 |
-| 发布就绪度 | 1/10 | 当前应判定 **No-Go** |
+| 维度 | 结论 |
+|---|---|
+| 领域模型 | 较成熟 |
+| 架构可测试性 | 良好 |
+| 宿主测试覆盖 | 较好，但本次未独立执行 |
+| UI 完整性 | 原型可用，存在状态和自定义设置问题 |
+| 持久化一致性 | 存在 P0 缺陷 |
+| 提醒注册一致性 | 存在 P0 缺陷 |
+| 时区与 DST | 设计未完整闭环 |
+| 真机适配器 | 尚未实现 |
+| 发布准备度 | **不具备发布条件** |
 
 ---
 
-## 2. 具体需求
+# 二、具体需求
 
-### 2.1 核心业务需求
+## 2.1 功能需求
 
-Move25 应在用户设定的上班时间内，以一个完整周期运行：
+### FR-01 工作节律配置
 
-```text
-工作 25 分钟
-→ 提醒活动
-→ 活动 5 分钟
-→ 下一轮工作
-```
+用户可以配置：
 
-默认配置：
+- 启用的星期；
+- 一个或多个工作时间段；
+- 专注时长；
+- 活动时长；
+- 是否启用提醒计划。
+
+默认值为：
 
 - 周一至周五；
-- 09:00–12:00；
-- 13:30–18:00；
-- 工作 25 分钟；
+- 09:00–12:00、13:30–18:00；
+- 专注 25 分钟；
 - 活动 5 分钟。
 
-提醒内容应覆盖：
+### FR-02 提醒计划管理
 
-- 起身；
-- 走动；
-- 温和伸展；
-- 看向远处、眨眼和放松眼睛。
+系统应支持：
 
-### 2.2 操作需求
-
-用户至少需要：
-
-- 启用/关闭提醒；
-- 修改工作日；
-- 修改工作时段；
-- 修改工作/活动时长；
+- 启用计划；
+- 关闭计划；
 - 暂停一小时；
-- 暂停今天；
-- 跳过下一次；
-- 立即开始活动；
-- 提醒到点后开始或跳过活动；
-- 提前完成活动；
-- 查看能力和错误诊断。
+- 暂停到当天结束；
+- 跳过下一次活动；
+- 设置变更后的提醒重新对账；
+- 应用重启后的提醒恢复和清理。
 
-### 2.3 平台需求
+### FR-03 活动会话
 
-- 首选纯手表端独立运行；
-- 日常使用不依赖 vivo、HarmonyOS 手机或 iPhone 的具体平台；
-- 无网络、无账号、无云端；
-- 本地保存设置和运行状态；
-- 应用退出、息屏后不得依赖 JavaScript 进程持续计时；
-- 系统提醒能力不可用时，必须明确显示降级状态；
-- 不得静默退化为不可靠前台定时器。
+用户能够：
 
-### 2.4 非功能需求
+- 从提醒页开始活动；
+- 从首页立即开始活动；
+- 跳过活动；
+- 完成活动；
+- 查看可见页面倒计时；
+- 接收活动开始和结束的振动反馈。
 
-- 低功耗；
-- 幂等；
-- 可恢复；
-- 可对账；
-- 错误显式；
-- 平台能力可追溯；
-- 领域内核可脱离设备测试；
-- 466×466 圆屏可操作；
-- 不提交签名材料、UDID 或个人日志。
+### FR-04 系统提醒一致性
 
----
+系统提醒必须：
 
-## 3. 需求分析与应用场景
+- 使用稳定语义键；
+- 重复注册时不产生重复系统提醒；
+- 时区或时间变化后能够重新调度；
+- 注册、取消和查询失败时明确报告；
+- 不使用长时间 JavaScript 定时器冒充后台提醒。
 
-### 3.1 标准工作日
+### FR-05 状态持久化
 
-用户 09:00 上班，09:25 收到活动提醒，活动 5 分钟后继续工作；午休期间停止提醒；13:30 重新开始周期。
+需要持久化：
 
-验收重点：
+- 用户设置；
+- 计划生命周期；
+- 暂停和跳过状态；
+- 当前活动会话；
+- 能力探测结果；
+- 指导动作轮换索引；
+- 修订版本号。
 
-- 上午和下午各自从工作块起点重新计算；
-- 午休不累积周期；
-- 提醒时间不因应用休眠而漂移。
+### FR-06 能力门禁
 
-### 3.2 会议或临时忙碌
+当提醒能力为以下状态时：
 
-用户可：
+- `Unknown`
+- `Unsupported`
+- `RequiresApproval`
+- `Degraded`
 
-- 暂停一小时；
-- 暂停今天；
-- 跳过下一次。
+应用不得无条件宣称可靠后台提醒已经启用。
 
-验收重点：
+### FR-07 诊断能力
 
-- 旧系统提醒被取消或失效；
-- 重复点击不会产生重复提醒；
-- 暂停结束后计划可重新对账。
+诊断页面应显示：
 
-### 3.3 手动活动
-
-用户可以随时点“立即活动”，进入 5 分钟活动页面。
-
-验收重点：
-
-- 不需要伪造一个系统久坐提醒；
-- 不覆盖正在进行的活动会话；
-- 页面息屏后，重新打开可按绝对结束时间恢复剩余时间。
-
-### 3.4 应用重启或系统回收
-
-验收重点：
-
-- 设置和状态从快照恢复；
-- 已过期活动会话被归约；
-- 计划与系统注册状态重新对账；
-- 损坏快照明确报错，不静默丢弃。
-
-### 3.5 时区或系统时间变化
-
-验收重点：
-
-- 本地工作时间仍保持 09:00、13:30 等语义；
-- 绝对触发时间重新物化；
-- 即使领域语义键未变化，旧系统提醒也必须更新。
-
-### 3.6 能力受限
-
-可能出现：
-
-- 提醒 API 不存在；
-- 需要开放能力审批；
-- 只能注册少量提醒；
-- 重启后不保留；
-- 免打扰或低电量模式抑制震动。
-
-验收重点：
-
-- UI 明确显示 `Unknown / RequiresApproval / Degraded / Unsupported`；
-- 不将“页面能倒计时”包装成“后台提醒可靠”；
-- 诊断页记录错误码、能力特征和实验结果。
+- 当前计划状态；
+- 当前提醒能力；
+- 已注册提醒数量；
+- 存储修订号；
+- 最新诊断事件。
 
 ---
 
-## 4. 当前实现中做得好的部分
+## 2.2 非功能需求
 
-### 4.1 领域核心基本保持纯净
+### NFR-01 可靠性
 
-`domain/` 主要使用：
-
-- 不可变值；
-- 显式 `Result`；
-- 命令、事件和效果 ADT；
-- `decide`；
-- `evolve`；
-- 调度代数；
-- 版本化快照。
-
-这符合 Functional Core / Imperative Shell 的方向。
-
-### 4.2 提醒使用语义键
-
-提醒不是以平台 ID 作为领域身份，而是使用：
+系统提醒、领域状态和持久化快照必须最终一致，不允许出现：
 
 ```text
-break-start:<rhythm>:<local-date>:<minute>
+UI 显示已关闭
+但系统提醒仍在触发
 ```
 
-这为幂等注册、取消和对账提供了良好基础。
-
-### 4.3 能力门禁是显式领域状态
-
-已经区分：
+或者：
 
 ```text
-Unknown
-Unsupported
-RequiresApproval
-Supported
-Degraded
+内存状态已更新
+但存储仍是旧状态
+且后续所有保存都发生并发冲突
 ```
 
-避免了把平台假设写死进业务。
+### NFR-02 低功耗
 
-### 4.4 没有用长 JavaScript 定时器冒充后台能力
+- 非前台页面不运行每秒定时器；
+- 长期计划交给系统调度；
+- 不持续采集传感器；
+- 不持续联网。
 
-这是正确的低功耗和可靠性原则。
+### NFR-03 可恢复性
 
-### 4.5 测试思路优于普通穿戴原型
+应用重启、时间改变、时区改变或部分系统操作失败后，下一次启动必须自动对账。
 
-仓库声明包含：
+### NFR-04 可测试性
 
-- 计划边界；
-- 性质测试；
-- 状态机；
-- 迁移；
-- 端口契约；
-- 部分失败；
-- 随机命令序列模型走查；
-- 架构适应度测试。
+- 领域逻辑在 Node 宿主环境测试；
+- 平台适配器执行契约测试；
+- 真机能力必须通过 GT6 测试；
+- 平台假设不能只依赖模拟器。
 
-这些是值得保留的资产。
+### NFR-05 圆屏交互
+
+- 首页只保留主要动作；
+- 次要动作放入可滚动页面；
+- 单次操作尽量不超过两步；
+- 错误信息不能被无条件跳转掩盖。
 
 ---
 
-## 5. 审阅发现
+# 三、需求应用场景
 
-## P0：阻止当前应用运行或产生错误产品状态
+## 场景 A：正常工作日
 
-### P0-1：正式入口使用宿主组合根，而且固定时钟为 `undefined`
+1. 用户在 09:00 启用计划。
+2. 系统计算 09:25、09:55 等活动提醒。
+3. 09:25 系统提醒触发。
+4. 用户点击“开始活动”。
+5. 活动页面显示 5 分钟倒计时。
+6. 活动结束后回到首页。
+7. 后续提醒继续有效。
 
-当前调用链：
+## 场景 B：应用退出后触发
+
+1. 用户启用提醒。
+2. 应用退出或手表息屏。
+3. 系统代理在活动时间触发提醒。
+4. 用户重新打开应用。
+5. 应用读取持久化状态并与系统提醒注册表对账。
+
+## 场景 C：修改工作时段
+
+1. 原计划为 09:00–18:00。
+2. 用户修改为 08:30–17:30。
+3. 系统取消旧提醒。
+4. 系统注册新提醒。
+5. 如果取消失败，不得直接把新状态持久化为“已经完成”。
+
+## 场景 D：提醒部分注册失败
+
+1. 计划包含 10 个提醒。
+2. 系统只成功注册 8 个。
+3. 计划状态应保持 `Enabling` 或明确降级。
+4. 下一次对账仅补注册缺失提醒。
+5. UI 不得显示完整“已启用”。
+
+## 场景 E：存储写入失败
+
+1. 系统提醒注册已经成功。
+2. 保存快照发生 I/O 错误。
+3. 应用不得把候选状态当作已经提交的状态。
+4. 应显示错误并在下次启动通过系统注册表重新收敛。
+
+## 场景 F：跨夏令时边界
+
+1. 用户周五设置未来三天提醒。
+2. 周日发生 DST 切换。
+3. 周日提醒的 UTC 偏移与周五不同。
+4. 每一个未来本地时间必须通过日历适配器单独解析，而不能复用当前偏移量。
+
+## 场景 G：自定义设置
+
+1. 快照中保存了非预设的 40/8 节律。
+2. 用户打开设置页。
+3. 用户未修改内容，直接保存。
+4. 原来的 40/8 必须保持不变，不能被静默替换成 25/5。
+
+---
+
+# 四、现有设计的优点
+
+## 4.1 函数式核心边界清楚
+
+领域模块不直接读取平台时钟、存储或系统提醒，而是由命令处理器收集事实后调用纯 `decide`。这是正确的依赖方向。
+
+## 4.2 提醒身份设计合理
+
+提醒使用：
 
 ```text
-app.js
-→ initApp({})
-→ createHostApp({})
-→ createFixedClock(opts.instant)
-→ createFixedClock(undefined)
-→ clock.now() 返回 Ok(undefined)
-→ calendar.localWall(undefined)
-→ 读取 instantValue.epochMilliseconds
+语义键 + 绝对 dueAt
 ```
 
-这意味着应用启动或首次刷新时可能直接抛出运行时异常。
+作为差异判断基础，能够识别“本地时间相同但绝对时刻已因时区变化而改变”的情况。
 
-#### 建议
+## 4.3 生命周期结算设计有价值
 
-- `createHostApp` 只能用于 Node 宿主测试；
-- 新增 `createDeviceApp`；
-- 在平台适配器未完成前，正式 HAP 应停留在明确的 Probe 页面，而不是装配无效宿主应用；
-- 所有适配器输入在边界处校验。
+`settlePlanLifecycle` 不允许在提醒注册失败时直接保留 `PlanEnabled`，这是一个正确且重要的约束。
+
+## 4.4 可见倒计时不承担后台正确性
+
+活动页面中的 `setInterval` 仅在页面可见时运行，并根据绝对 `endsAt` 重新计算剩余时间。这比通过持续减一维护倒计时可靠。
+
+## 4.5 当前产品入口没有偷偷使用内存适配器
+
+设备组合根要求真实的时钟、日历、存储、提醒、振动和诊断适配器。如果缺失则拒绝装配，而不是在正式 HAP 中静默使用测试实现。这个门禁策略是正确的。
 
 ---
 
-### P0-2：当前“产品页面”实际上仍运行内存假适配器
+# 五、问题清单
 
-当前页面使用：
+## 5.1 P0：必须在任何 Beta 或真机验证前修复
 
-- 固定时钟；
-- 内存存储；
-- 记录型提醒；
-- 记录型振动；
-- 记录型导航。
+### P0-01 持久化失败仍返回成功状态
 
-结果是：
+当前命令处理流程：
 
-- 设置不会真正持久化；
-- 手表不会真正震动；
-- 系统不会注册提醒；
-- 导航效果只写入内存；
-- 诊断数字来自假适配器。
-
-这适合测试，但不能作为产品 shell。
-
----
-
-### P0-3：效果失败后仍然演化状态并返回 `Ok`
-
-当前工作流大致为：
-
-```text
-decide
-→ 逐个执行 effect
-→ 即使 effect 失败也只写诊断
-→ evolve 所有业务事件
-→ 返回 Ok
-```
-
-例如系统提醒注册失败，但 `PlanEnabled` 事件仍会被演化，UI 可能显示“已启用”。
-
-这是比平台 API 缺失更严重的正确性问题：**状态宣称成功，但现实副作用失败。**
-
-#### 正确原则
-
-```text
-请求启用
-→ 注册提醒
-→ 注册成功后才产生 PlanEnabled
-→ 注册失败产生 PlanBlocked / OperationalDegraded
-→ 最后持久化最终状态
-```
-
----
-
-### P0-4：活动倒计时不会持续更新，也不会自然结束
-
-活动页只在 `onShow()` 调用一次 `render()`：
-
-- 没有可见页面刷新；
-- `TickVisible` 没有被页面发送；
-- 到 0 后没有 `BreakElapsed` 命令；
-- 没有 5 分钟结束系统提醒；
-- 用户不点击“提前完成”或“跳过”时，会话不会自然完成。
-
-允许在页面可见期间使用短周期 UI 刷新，但它只能负责显示；后台正确性仍必须由绝对时间和系统提醒保证。
-
----
-
-### P0-5：页面使用 `this.data.xxx` 更新状态，可能不会触发响应式刷新
-
-当前多个页面写：
-
-```js
-this.data.nextBreak = ...
-this.data.remainingText = ...
-```
-
-Lite JS 页面通常将 `data` 字段暴露为页面实例属性，示例写法是：
-
-```js
-this.nextBreak = ...
-this.remainingText = ...
-```
-
-当前写法很可能只修改内部对象，而不触发模板绑定更新。必须在 DevEco 模拟器立即验证并统一修正。
-
----
-
-### P0-6：首页和设置页明显超出 466×466 圆屏
-
-首页含：
-
-- 状态横幅；
-- 计划状态；
-- 下次提醒；
-- 错误；
-- 7 个 48px 按钮；
-- 每个按钮还有 10px 上边距。
-
-仅按钮就约：
-
-```text
-7 × (48 + 10) = 406px
-```
-
-再加文本和边距，必然超出屏幕。
-
-设置页的工作日、三组工作时段、四组节律及保存按钮也没有滚动容器。
-
-需要：
-
-- 使用 `list/list-item`；
-- 首页保留一个主操作和一个“更多”入口；
-- 将设置拆页或滚动；
-- 确保顶部/底部圆弧安全区域。
-
----
-
-## P1：高优先级正确性问题
-
-### P1-1：设置页默认会把 25/5 静默改成 50/10
-
-领域默认是 25/5，但设置页：
-
-```js
-selectedRhythm: 1
-```
-
-而预设索引 1 是 50/10。
-
-用户进入设置后直接保存，就可能把 25/5 改成 50/10。
-
-此外，`onShow()` 只恢复 `enabledFlag`，没有恢复：
-
-- 当前工作日；
-- 当前工作时段；
-- 当前工作/活动时长。
-
----
-
-### P1-2：仅支持周一至周五，领域模型却支持七天
-
-设置 UI 只有：
-
-```text
-Mon Tue Wed Thu Fri
-```
-
-如果未来领域状态包含周六或周日，打开设置并保存会丢失这两天。
-
----
-
-### P1-3：时区变化不会触发同一语义键的提醒重注册
-
-提醒 key 只包含：
-
-- 节律；
-- 本地日期；
-- 本地分钟。
-
-假设用户从 UTC+8 切换到 UTC+9：
-
-```text
-本地 09:25 的 key 不变
-绝对触发时间变化一小时
-```
-
-现有 `diffPlans` 只比较 key，因此会认为“提醒未变化”，不会更新系统提醒。
-
-#### 建议
-
-应用层将本地意图物化为：
+1. 先执行提醒、振动和导航等副作用；
+2. 演化领域状态；
+3. 保存快照；
+4. 保存失败时仅写诊断日志；
+5. 仍返回：
 
 ```js
 {
-  key,
-  dueAt,
-  fingerprint: key + '@' + dueAt.epochMilliseconds
+    tag: 'Ok',
+    state: evolved.value
 }
 ```
 
-比较时：
+这意味着：
 
-- key 相同、fingerprint 相同：unchanged；
-- key 相同、fingerprint 不同：cancel/update + register。
+```text
+内存 revision = 12
+存储 revision = 11
+```
+
+下一次保存会使用 `expectedRevision = 12`，而存储当前仍是 11，随后可能持续返回 `CONCURRENT_MODIFICATION`。
+
+更严重的是，系统提醒可能已经注册或取消，而持久化状态没有同步更新。当前实现可在单次故障后形成三套不同事实：
+
+- 系统提醒注册表；
+- 内存领域状态；
+- 持久化快照。
+
+问题位于 `app/command-handler.js` 的副作用执行及持久化段。
+
+`refresh()` 中也存在同类问题：代码先把全局 `state` 替换成归约后的状态，再执行保存；保存失败后不会回滚。
+
+**影响：**
+
+- 后续设置无法保存；
+- 应用重启后状态倒退；
+- 已完成活动可能重新显示为进行中；
+- 暂停状态可能在重启后恢复；
+- 提醒注册状态无法可靠对账。
+
+**结论：P0。**
 
 ---
 
-### P1-4：读取系统提醒失败时被当成“系统没有提醒”
+### P0-02 取消提醒失败仍可持久化为“已关闭”
 
-`listRegistered()` 失败后，命令处理器继续使用：
+`DisablePlan` 产生：
+
+```text
+PlanDisabled event
+CancelReminders effect
+```
+
+命令处理器即使收到 `CancelReminders = Err`，仍继续演化 `PlanDisabled` 并保存。
+
+结果可能是：
+
+```text
+领域和 UI：Disabled
+系统：仍有提醒
+```
+
+之后再次点击关闭时，`DisablePlan` 在状态已经为 `Disabled` 时直接返回空决策，失去重试清理孤儿提醒的机会。相关逻辑分别位于命令处理器和 `DisablePlan` 分支。 
+
+**结论：P0。**
+
+---
+
+### P0-03 启动后没有自动执行完整提醒对账
+
+宿主工作流测试明确通过以下流程恢复重启状态：
 
 ```js
-registeredPlan = []
+state2 = boot(app2);
+state2 = run(app2, state2, reconcilePlan()).state;
 ```
 
-这可能造成：
+也就是说，仅 `boot()` 不足以完成：
 
-- 重复注册；
-- 容量耗尽；
-- 状态错误；
-- 把权限错误误判为“空列表”。
+- 过期活动归约；
+- 过期暂停恢复；
+- 系统提醒注册表对账。
 
-涉及对账的命令应在列表失败时终止或进入显式降级，不应把未知解释为空。
+
+
+但实际首页 `onShow()` 只调用 `refresh()`，没有发送 `AppOpened` 或 `ReconcilePlan`。
+
+`bootApp()` 只读取快照和探测能力，也没有执行启动对账。
+
+这会导致：
+
+- 应用重启后系统注册表与期望计划长期不一致；
+- 时区变化后旧提醒不能立即清理；
+- 存储失败留下的外部副作用不能自动收敛。
+
+**结论：P0。**
 
 ---
 
-### P1-5：每个命令都查询提醒列表
+### P0-04 递归提醒规则在解释器中被丢弃
 
-即使用户只是：
+领域效果 `RegisterReminders` 支持携带：
 
-- 完成活动；
-- 查看页面；
-- 跳过当前活动；
+```js
+{
+    intents,
+    recurrenceRules
+}
+```
 
-命令处理器仍先调用 `listRegistered()`。
 
-这增加耗电和失败面。应按命令所需 facts 精确采集：
+
+策略层也会构建 `RecurrenceRule`。
+
+但效果解释器实际只调用：
+
+```js
+ports.reminders.register(effect.intents);
+```
+
+完全没有传递 `effect.recurrenceRules`。
+
+因此当前所谓 `RecurringCalendarStrategy` 只是死数据，真实适配器无法得知递归规则。
+
+**结论：P0，若目标平台依赖递归注册。**
+
+---
+
+### P0-05 当前 HAP 无法装配核心应用
+
+设备入口只传入：
+
+```js
+{
+    navigation: createRouterAdapter()
+}
+```
+
+
+
+而设备组合根强制要求：
+
+- clock
+- calendar
+- store
+- reminders
+- haptics
+- diagnostics
+
+因此当前产品路径必然进入 `ADAPTERS_NOT_CONFIRMED`，核心功能无法运行。这符合当前能力门禁策略，但意味着仓库当前不能视为可运行产品。
+
+**结论：发布阻断项，不一定是代码错误。**
+
+---
+
+## 5.2 P1：进入设备集成前应修复
+
+### P1-01 未来提醒使用单一当前 UTC 偏移，不能正确跨越 DST
+
+`CalendarPort` 已定义：
 
 ```text
-Enable/Configure/Pause/SkipNext/Reconcile → 需要 registeredPlan
-StartBreak/CompleteBreak → 不需要 registeredPlan
+resolve(localDate, minuteOfDay)
 ```
+
+并明确指出 DST 应由适配器处理。
+
+但当前命令处理器只获取一次当前 UTC offset，并将同一个偏移量用于整个三天计划。
+
+领域中的 `attachDueAt` 随后通过：
+
+```js
+localToInstant(intent.localDate, intent.at, utcOffsetMinutes)
+```
+
+解析所有未来提醒。
+
+当未来日期跨越 DST 边界时，这个算法会产生错误的绝对时间。
+
+**建议：**
+
+领域只生成本地意图；应用层逐条调用：
+
+```js
+calendar.resolve(intent.localDate, intent.at)
+```
+
+再把解析后的绝对时间作为事实送回纯差异计算。
 
 ---
 
-### P1-6：提醒回调只检查 key 存在，不检查触发时刻
+### P1-02 快照所谓“严格解码”仍信任可伪造的 tag
 
-如果某个未来提醒 key 被提前触发，只要它仍存在于未来几天计划中，当前代码可能接受它。
+当前逻辑遇到：
 
-应校验：
+```js
+raw.settings.tag === 'ScheduleSettings'
+```
+
+时会直接信任整个对象，而不是重新通过智能构造器验证。
+
+同样存在：
+
+- `revision` 只检查是不是 number，没有检查整数、非负和有限；
+- `guidanceIndex` 可为负数、浮点数或无限值；
+- `Active.sessionId` 未验证；
+- `endsAt` 未验证必须晚于 `startedAt`；
+- `PauseThroughLocal.localDate` 没有通过 `localDate()` 重建；
+- `WorkBlock`、`Weekday`、`Rhythm` 主要依赖 tag，而 tag 可以来自任意 JSON。
+
+  
+
+这可能导致损坏快照通过启动阶段，却在计划生成或 UI 投影时抛出异常。
+
+---
+
+### P1-03 延迟提醒容忍策略与计划对账相冲突
+
+提醒回调允许最多晚到 15 分钟。
+
+但期望计划构建会删除：
+
+```js
+intent.at.value <= 当前分钟
+```
+
+的提醒。
+
+例如：
 
 ```text
-abs(actualFiredAt - expectedDueAt) <= tolerance
+提醒计划：10:25
+实际回调：10:28
+用户在 10:26 打开应用触发对账
 ```
 
-并区分：
+对账可能先把 10:25 的提醒认定为过去并取消，而回调策略又认为 10:28 仍是合法延迟。
 
-- 准时；
-- 延迟；
-- 过早；
-- 已过期；
-- 系统补发；
-- 重复回调。
+**建议：**
+
+在 `dueAt + LATE_TOLERANCE_MS` 之前保留尚未确认完成的提醒，而不是仅按本地分钟判断是否已过期。
 
 ---
 
-### P1-7：快照恢复并不“严格”
+### P1-04 `firedAt` 没有完整值验证
 
-当前多个未知值会静默退化：
+命令处理器验证了 `facts.now`，但 `HandleReminderFired` 会优先使用：
 
-- 未知 lifecycle → Disabled；
-- 未知 break session → NoBreak；
-- 未知 outcome → Completed；
-- 未知 capability → Unknown。
+```js
+command.firedAt || facts.now
+```
 
-并且只要 `settings.tag === 'ScheduleSettings'`，就直接信任内部字段，没有重新通过智能构造器验证。
+并直接访问 `epochMilliseconds`。
 
-这可能把损坏数据恢复成看似正常的状态，或在后续代码中崩溃。
+如果平台适配器传入结构错误但 truthy 的 `firedAt`：
 
----
+- 时间差可能变成 `NaN`；
+- 早到和晚到检查全部失效；
+- 无效对象可能被保存为 `dueAt`。
 
-### P1-8：调度策略只实现了“切片”，没有实现策略语义
-
-`RecurringCalendarStrategy`、`RollingWindowStrategy.days` 和 `SingleNextStrategy` 已建模，但 `applyStrategyWindow` 基本只按 `maxPendingCount` 切片：
-
-- `days` 没有用于过滤日期；
-- recurring 没有生成重复规则；
-- degraded strategy 没有 maxPending 时默认 30，可能违反设备容量。
-
-策略 ADT 目前更像标签，而非真正可解释的调度程序。
+应对 `command.firedAt` 使用和系统时钟相同的 `Instant` 验证。
 
 ---
 
-### P1-9：NavigationPort 被绕过
+### P1-05 `StartBreak` 没有校验传入提醒键是否匹配当前 Due 会话
 
-已经实现 `router-adapter.js`，但：
+当前只检查：
 
-- 首页直接导入 `@system.router`；
-- 设置页直接导入；
-- 诊断页直接导入；
-- 产品 shell 仍装配 recording navigation。
+```js
+state.breakSession.tag === 'Due'
+```
 
-这破坏了“平台 API 只进入适配器”的边界。
-
----
-
-### P1-10：诊断页依赖内存适配器私有方法
-
-诊断页依赖：
+但不比较：
 
 ```text
-_all()
-_registeredKeys()
-_peek()
+command.reminderKey
+state.breakSession.reminderKey
 ```
 
-这些不是端口契约的一部分，真实平台适配器不一定提供。
-
-应新增正式的 `DiagnosticsQuery` 或 `RuntimeStatusPort`，返回稳定 DTO。
+旧页面、重复点击或延迟 UI 事件可能使用陈旧 key 开始另一个提醒对应的活动。
 
 ---
 
-### P1-11：指导动作直接显示内部键值
+### P1-06 递归策略先截断具体日期，再生成星期规则
 
-当前 UI 可能显示：
+`RecurringCalendarStrategy` 当前对具体计划执行：
 
-```text
-stand_and_walk
-simple_stretch
-look_far
+```js
+plan.slice(0, capacity)
 ```
 
-而不是中文用户文案。
+随后才构建星期递归规则。
 
-应在 UI 投影层做资源映射，领域只保留稳定语义 ID。
+如果 capacity 较小，截断可能只保留周一至周三的数据，最终生成的递归规则会漏掉周四和周五。
+
+应先构建规则，再按“规则数量”检查平台容量。
 
 ---
 
-### P1-12：提醒到点和开始活动可能重复震动
+### P1-07 路由适配器无异常边界
 
-`HandleReminderFired` 发出 `BreakStart` 震动，随后 `StartBreak` 又发出同样的 `BreakStart` 震动。
+当前代码直接调用：
 
-建议区分：
-
-```text
-BreakDue
-BreakStarted
-BreakEnded
+```js
+router.replace({ uri });
+return ok(Unit);
 ```
 
-或者开始活动时不再次震动。
+如果平台调用同步抛错，异常会穿透效果解释器；如果平台调用异步失败，适配器仍立即报告成功。
+
+至少应增加同步异常捕获；如果真实 API 依赖回调或 Promise，则端口契约需要升级为异步结果。
 
 ---
 
-## P2：发布和工程治理问题
+## 5.3 前端问题
 
-### P2-1：产品入口仍是 Probe 页面
+### P1-08 活动页面复用时 `elapsedDispatched` 不会复位
 
-`config.json` 中第一个页面仍是：
+该字段只在页面对象初始化时设为 `false`：
 
-```text
-pages/index/index
+```js
+elapsedDispatched: false
 ```
 
-正式产品入口应改为 `pages/home/index`，Probe 应独立分支或独立构建产品。
+`onShow()` 没有重置。如果 Lite 页面实例被复用，第一次活动到期后字段会保持 `true`，第二次活动结束时不再发送 `BreakElapsed`。
 
-### P2-2：包名和 vendor 仍为模板值
+---
+
+### P1-09 非预设设置会被静默覆盖
+
+`matchBlockIndex()` 和 `matchRhythmIndex()` 找不到匹配项时都返回 `0`。
+
+因此，假设快照中已有：
 
 ```text
-com.example.watch
-example
+工作时间：10:00–16:00
+节律：40/8
 ```
 
-应在 AGC 和签名配置前确定最终身份。
+打开设置页后，即使不修改，保存时也会被替换成：
 
-### P2-3：签名配置为空但产品引用 default
+```text
+第一组工作时段
+25/5
+```
+
+这与代码注释中“打开后不修改直接保存不会改变计划”的声明不一致。
+
+---
+
+### P1-10 页面无论命令成功与否都直接跳走
+
+设置页：
+
+```js
+dispatch(SettingsSaved);
+navigateTo('home');
+```
+
+更多页面中的暂停、跳过操作也采用相同模式。
+
+即使：
+
+- 存储失败；
+- 取消提醒失败；
+- 注册提醒失败；
+
+页面仍返回首页，用户很难判断操作是否生效。
+
+---
+
+### P1-11 诊断页面显示的不是最新八条事件
+
+内存诊断端口的 `readRecent()` 返回**最新优先**顺序。
+
+诊断页面却从数组尾部向前遍历。
+
+当有 12 条记录时，页面显示的是第 12 至第 5 条，反而漏掉最新四条。
+
+---
+
+### P2-01 Due 页面和 Active 页面可能显示不同动作建议
+
+Due 状态固定显示 `guidanceAt(0)`，而真正开始活动时，会按 `state.guidanceIndex` 选择下一组指导。 
+
+用户可能在提醒页看到“站立行走”，点击开始后却变成另一组动作。
+
+---
+
+### P2-02 README 与当前代码不一致
+
+README 仍包含：
+
+- 103 个测试；
+- `com.example.watch`；
+- `pages/index` 临时入口；
+- 部分过期阶段说明。
+
+
+
+当前配置已改为：
 
 ```json
-"signingConfigs": [],
-"signingConfig": "default"
+"bundleName": "com.move25.watch"
 ```
 
-真机安装前必须配置。
+并删除 `pages/index`。
 
-### P2-4：`.gitignore` 不完整
-
-缺少：
-
-```text
-/node_modules
-*.p12
-*.p7b
-*.cer
-*.key
-```
-
-签名材料必须保证不进入仓库。
-
-### P2-5：Linter 配置仍未证明适用于 Lite JS
-
-当前把 `.js` 纳入 TypeScript ESLint 规则。应在 DevEco 中实际执行；如果插件不能解析 Lite JS，应采用独立宿主 ESLint，而非声称已有静态检查。
+最新提交信息则声明 156 个宿主测试。
 
 ---
 
-## 6. 推荐目标架构
+### P2-03 发布元数据仍是占位值
 
-```text
-pages/HML
-   ↓ Msg
-MVU update（纯）
-   ↓ Command
-Application Workflow
-   ├── 精确采集 Facts
-   ├── decide（纯）
-   ├── 执行必须效果
-   ├── 将效果结果映射成 Outcome Events
-   ├── evolve（纯）
-   └── 最后持久化
-           ↓ Ports
-┌───────────────┬───────────────┐
-│ Host Adapters │ Device Adapters│
-│ tests only    │ GT6 runtime    │
-├───────────────┼───────────────┤
-│ fixed clock   │ system clock   │
-│ memory store  │ Lite storage   │
-│ fake reminder │ confirmed API  │
-│ recorder nav  │ @system.router │
-└───────────────┴───────────────┘
+当前配置仍为：
+
+```json
+"vendor": "example"
 ```
 
-### 强制分离
+同时根构建配置没有正式签名配置。 
 
-```text
-createHostApp()
-仅 tests-host 使用
-
-createDeviceApp()
-仅 HAP 入口使用
-```
+这在开发阶段可以接受，但必须列入发布门禁。
 
 ---
 
-## 7. 后端/领域与应用层修改代码
+# 六、后端具体修改代码
 
-> 本项目 v1 没有服务器后端。这里的“后端”指领域核心、应用工作流和平台适配器。
+> 本项目没有传统服务器端。以下“后端”指领域层、应用层、效果解释器和平台端口。
 
-## 7.1 新增统一运行时与设备组合根
+## 6.1 修复持久化失败仍返回成功
 
-### `app/app-runtime.js`
+修改 `app/command-handler.js` 的副作用执行和保存部分：
 
 ```js
-import { rehydrateFromRaw } from '../domain/snapshot.js';
-import { createCommandHandler } from './command-handler.js';
-
 /**
- * 只装配已经实现端口的通用应用运行时。
- * 这里不选择任何具体平台，保持六边形边界。
+ * 构造失败结果。
+ * 失败时始终返回操作前的 committedState，
+ * 禁止把未持久化的候选状态暴露给 UI。
  */
-export function createAppRuntime(ports) {
-    const handleCommand = createCommandHandler(ports);
-
-    return {
-        ports: ports,
-        handleCommand: handleCommand,
-
-        probeCapabilities: function () {
-            // 能力探测属于 ReminderSchedulerPort，不由领域猜测。
-            return ports.reminders.probeCapabilities();
-        },
-
-        boot: function () {
-            const loaded = ports.store.loadSnapshot();
-            if (loaded.tag === 'Err') {
-                return Object.freeze({
-                    tag: 'Err',
-                    error: loaded.error
-                });
-            }
-
-            const raw = loaded.value.tag === 'Some'
-                ? loaded.value.value
-                : null;
-
-            // 快照迁移和恢复保持纯函数。
-            const restored = rehydrateFromRaw(raw);
-            if (restored.tag === 'Err') {
-                return restored;
-            }
-
-            return Object.freeze({
-                tag: 'Ok',
-                state: restored.value
-            });
-        }
-    };
-}
-```
-
-### `app/composition-root.js`
-
-```js
-import { createAppRuntime } from './app-runtime.js';
-// 其余内存适配器 import 保留。
-
-/**
- * 只供 Node 宿主测试和确定性模拟使用。
- * 正式 app.js 禁止调用该函数。
- */
-export function createHostApp(options) {
-    const opts = options || {};
-
-    if (!opts.instant && !opts.clock) {
-        // 尽早失败，避免 undefined 穿透至 calendar。
-        throw new Error('createHostApp requires options.instant or options.clock');
-    }
-
-    const ports = {
-        clock: opts.clock || createFixedClock(opts.instant),
-        calendar: opts.calendar || createFixedCalendar(
-            typeof opts.utcOffsetMinutes === 'number'
-                ? opts.utcOffsetMinutes
-                : 480
-        ),
-        store: opts.store || createMemoryStore(),
-        reminders: opts.reminders || createRecordingReminder({
-            capability: opts.capability,
-            failKeys: opts.failKeys
-        }),
-        haptics: opts.haptics || createMemoryHaptics(),
-        diagnostics: opts.diagnostics || createMemoryDiagnostics(),
-        navigation: opts.navigation || createRecordingNavigation()
-    };
-
-    return createAppRuntime(ports);
-}
-```
-
-### `app/device-composition-root.js`
-
-```js
-import { createAppRuntime } from './app-runtime.js';
-import { createRouterAdapter } from '../adapters/ui/router-adapter.js';
-
-/**
- * 设备组合根只能引用当前 Lite SDK 已确认可用的适配器。
- *
- * 注意：
- * - 不在这里猜测 reminder/storage/vibrator 的模块名称；
- * - 每个适配器必须先经过 SDK 编译探针；
- * - 后台提醒适配器必须经过 GT6 真机门禁。
- */
-export function createDeviceApp(adapters) {
-    if (!adapters ||
-        !adapters.clock ||
-        !adapters.calendar ||
-        !adapters.store ||
-        !adapters.reminders ||
-        !adapters.haptics ||
-        !adapters.diagnostics) {
-        throw new Error('Device adapters are incomplete');
-    }
-
-    return createAppRuntime({
-        clock: adapters.clock,
-        calendar: adapters.calendar,
-        store: adapters.store,
-        reminders: adapters.reminders,
-        haptics: adapters.haptics,
-        diagnostics: adapters.diagnostics,
-        navigation: createRouterAdapter()
-    });
-}
-```
-
-在真实适配器未完成前，正式 HAP 不应假装是产品。可以继续只运行 Probe 页面。
-
----
-
-## 7.2 修复效果失败却仍显示成功
-
-### 领域命令：启用时不要提前发 `PlanEnabled`
-
-当前应将：
-
-```js
-[planEnableRequested(), planEnabled()]
-```
-
-改成：
-
-```js
-// 先表达“请求启用”，成功事件由效果结果产生。
-[planEnableRequested()]
-```
-
-### 新增效果结果事件
-
-```js
-export function remindersRegistered(report) {
-    return event('RemindersRegistered', { report: report });
-}
-
-export function reminderRegistrationFailed(error) {
-    return event('ReminderRegistrationFailed', { error: error });
-}
-
-export function snapshotPersistFailed(error) {
-    return event('SnapshotPersistFailed', { error: error });
-}
-```
-
-### 在 `evolve.js` 中处理
-
-```js
-case 'RemindersRegistered':
-    return ok(copyState(state, {
-        // 只有系统注册成功后，才进入 Enabled。
-        planLifecycle: planEnabledState(),
-        settings: Object.freeze(Object.assign({}, state.settings, {
-            enabledFlag: true
-        })),
-        operationalStatus: Object.freeze({ tag: 'Healthy' }),
-        revision: state.revision + 1
-    }));
-
-case 'ReminderRegistrationFailed':
-    return ok(copyState(state, {
-        // 不要继续显示 Enabled。
-        planLifecycle: planBlockedState(event.error),
-        operationalStatus: Object.freeze({
-            tag: 'Degraded',
-            reason: event.error
-        }),
-        revision: state.revision + 1
-    }));
-```
-
-### 重写效果执行顺序的核心逻辑
-
-```js
-import {
-    remindersRegistered,
-    reminderRegistrationFailed
-} from '../domain/events.js';
-import { createSnapshot } from '../domain/snapshot.js';
-
-function isPersist(effect) {
-    return effect.tag === 'PersistSnapshot';
-}
-
-/**
- * 执行业务效果，将真实结果转成领域事件。
- * 持久化始终放在最终状态演化之后。
- */
-function executeBusinessEffects(decision, ports, now) {
-    const outcomeEvents = [];
-    const reports = [];
-
-    for (let index = 0; index < decision.effects.length; index += 1) {
-        const effect = decision.effects[index];
-
-        // 旧 Decision 中的 PersistSnapshot 暂不在此执行。
-        if (isPersist(effect)) {
-            continue;
-        }
-
-        const result = interpretEffect(effect, ports, {});
-        reports.push(Object.freeze({
-            effectTag: effect.tag,
-            result: result
-        }));
-
-        if (effect.tag === 'RegisterReminders') {
-            if (result.tag === 'Ok') {
-                outcomeEvents.push(remindersRegistered(result.value));
-            } else {
-                outcomeEvents.push(reminderRegistrationFailed(result.error));
-            }
-        }
-
-        if (result.tag === 'Err') {
-            // 诊断失败本身不应再次抛异常。
-            ports.diagnostics.append(Object.freeze({
-                tag: 'EffectFailed',
-                effect: effect.tag,
-                code: result.error.code,
-                at: now
-            }));
-        }
-    }
-
-    return Object.freeze({
-        outcomeEvents: Object.freeze(outcomeEvents),
-        reports: Object.freeze(reports)
-    });
-}
-```
-
-命令处理器最终流程：
-
-```js
-const decisionResult = decide(currentState, command, facts);
-if (decisionResult.tag === 'Err') {
-    return decisionResult;
-}
-
-const execution = executeBusinessEffects(
-    decisionResult.value,
-    ports,
-    facts.now
-);
-
-// 先应用“意图事件 + 效果结果事件”。
-const allEvents = decisionResult.value.events.concat(
-    execution.outcomeEvents
-);
-const evolved = evolveAll(currentState, allEvents);
-if (evolved.tag === 'Err') {
-    return evolved;
-}
-
-// 最后持久化真实最终状态。
-const saved = ports.store.saveSnapshot(
-    currentState.revision,
-    createSnapshot(evolved.value)
-);
-if (saved.tag === 'Err') {
-    // 不得吞掉持久化失败。
+function commandFailed(error, committedState, decision, results, facts, candidateState) {
     return Object.freeze({
         tag: 'Err',
-        error: saved.error,
-        state: evolved.value,
-        dirty: true,
-        results: execution.reports
+        error: error,
+        state: committedState,       // 已经确认提交的状态
+        candidateState: candidateState, // 仅用于诊断，不能成为全局状态
+        decision: decision,
+        results: results,
+        facts: facts
     });
 }
 
+// 1. 执行业务副作用。
+const results = [];
+let registration;
+
+for (let index = 0; index < decision.effects.length; index += 1) {
+    const effect = decision.effects[index];
+    const result = interpretEffect(effect, ports);
+
+    results.push(Object.freeze({
+        effectTag: effect.tag,
+        result: result
+    }));
+
+    if (effect.tag === 'RegisterReminders') {
+        // 注册失败由 settlePlanLifecycle 转换成
+        // Enabling 或 Blocked，不能在这里直接退出。
+        registration = toRegistrationOutcome(result, effect.intents);
+    }
+
+    if (result.tag === 'Err') {
+        ports.diagnostics.append(Object.freeze({
+            tag: 'EffectFailed',
+            effect: effect.tag,
+            code: result.error.code,
+            at: now
+        }));
+
+        if (effect.tag === 'CancelReminders') {
+            // 取消失败时不能继续演化 PlanDisabled，
+            // 否则 UI 会显示关闭但系统提醒仍存在。
+            return commandFailed(
+                result.error,
+                currentState,
+                decision,
+                results,
+                facts
+            );
+        }
+    }
+}
+
+// 2. 根据注册结果结算生命周期。
+const settled = settlePlanLifecycle(
+    currentState,
+    decision.events,
+    registration
+);
+
+if (settled.tag === 'Err') {
+    return commandFailed(
+        settled.error,
+        currentState,
+        decision,
+        results,
+        facts
+    );
+}
+
+// 3. 生成候选状态。
+const evolved = evolveAll(currentState, settled.value);
+
+if (evolved.tag === 'Err') {
+    return commandFailed(
+        evolved.error,
+        currentState,
+        decision,
+        results,
+        facts
+    );
+}
+
+const candidateState = evolved.value;
+
+// 4. 提交候选状态。
+if (settled.value.length > 0) {
+    const persist = ports.store.saveSnapshot(
+        currentState.revision,
+        createSnapshot(candidateState)
+    );
+
+    results.push(Object.freeze({
+        effectTag: 'PersistSnapshot',
+        result: persist
+    }));
+
+    if (persist.tag === 'Err') {
+        ports.diagnostics.append(Object.freeze({
+            tag: 'EffectFailed',
+            effect: 'PersistSnapshot',
+            code: persist.error.code,
+            at: now
+        }));
+
+        // 保存失败时返回旧状态。
+        // 已执行的系统副作用由下一次 reconcile 根据
+        // listRegistered() 自动收敛。
+        return commandFailed(
+            persist.error,
+            currentState,
+            decision,
+            results,
+            facts,
+            candidateState
+        );
+    }
+}
+
+// 只有副作用结算和持久化都达到允许状态后，才返回 Ok。
 return Object.freeze({
     tag: 'Ok',
-    state: evolved.value,
-    results: execution.reports,
+    state: candidateState,
+    decision: decision,
+    appliedEvents: settled.value,
+    results: results,
     facts: facts
 });
 ```
 
-实际实施时，需要进一步明确哪些效果是事务性必须成功，哪些可以降级，例如：
-
-| 效果 | 失败策略 |
-|---|---|
-| RegisterReminders | 启用失败/降级 |
-| CancelReminders | 保持 Dirty，后续对账重试 |
-| PersistSnapshot | 返回错误并标记 Dirty |
-| Navigate | 记录错误，业务状态可保留 |
-| Vibrate | 降级但不回滚活动会话 |
-| Diagnostics | 不影响主流程 |
-
----
-
-## 7.3 按命令精确采集 Facts
+### 同时修复 `refresh()`
 
 ```js
-function commandNeedsRegisteredPlan(command) {
-    switch (command.tag) {
-        case 'EnablePlan':
-        case 'DisablePlan':
-        case 'ConfigureSchedule':
-        case 'PauseUntil':
-        case 'PauseForToday':
-        case 'PauseForOneHour':
-        case 'SkipNext':
-        case 'ReconcilePlan':
-            return true;
-        default:
-            return false;
-    }
-}
+const baseRevision = state.revision;
+const reduced = reduceTemporalState(state, clockResult.value);
 
-function collectRegisteredPlan(ports, command) {
-    if (!commandNeedsRegisteredPlan(command)) {
-        return ok(Object.freeze([]));
-    }
+if (reduced.tag === 'Ok' && reduced.value !== state) {
+    const candidateState = reduced.value;
 
-    const listed = ports.reminders.listRegistered('move25');
+    const persist = app.ports.store.saveSnapshot(
+        baseRevision,
+        createSnapshot(candidateState)
+    );
 
-    if (listed.tag === 'Err') {
-        // 不把 unknown 解释为空列表。
-        return listed;
-    }
+    if (persist.tag === 'Ok') {
+        // 只有保存成功才替换全局状态。
+        state = candidateState;
+    } else {
+        app.ports.diagnostics.append(Object.freeze({
+            tag: 'EffectFailed',
+            effect: 'PersistSnapshot',
+            code: persist.error.code,
+            at: clockResult.value
+        }));
 
-    return listed;
-}
-```
-
----
-
-## 7.4 增加绝对触发时间和 fingerprint
-
-### 应用层物化
-
-```js
-import { err, ok } from '../domain/result.js';
-
-/**
- * 将纯领域中的本地提醒意图解析为平台可注册的绝对提醒。
- * 解析依赖 CalendarPort，因此位于应用层，不放入 domain。
- */
-export function materializeReminderPlan(localIntents, calendarPort) {
-    const scheduled = [];
-
-    for (let index = 0; index < localIntents.length; index += 1) {
-        const intent = localIntents[index];
-        const resolved = calendarPort.resolve(
-            intent.localDate,
-            intent.at
-        );
-
-        if (resolved.tag === 'Err') {
-            return err(resolved.error);
-        }
-
-        const dueAt = resolved.value;
-        scheduled.push(Object.freeze({
-            tag: 'ScheduledReminder',
-            key: intent.key,
-            dueAt: dueAt,
-
-            // key 相同但绝对时刻变化时，必须重新注册。
-            fingerprint: intent.key.value + '@' +
-                dueAt.epochMilliseconds
+        // 保留旧 revision，避免后续保存永久冲突。
+        model = Object.freeze(Object.assign({}, model, {
+            errors: Object.freeze(model.errors.concat([{
+                text: '状态保存失败，请重新打开应用',
+                code: persist.error.code
+            }]))
         }));
     }
-
-    return ok(Object.freeze(scheduled));
 }
-```
-
-### 对账规则
-
-```js
-function sameRegistration(left, right) {
-    return left.key.value === right.key.value &&
-        left.fingerprint === right.fingerprint;
-}
-```
-
-系统注册映射必须保存：
-
-```text
-semanticKey
-systemId
-dueAt
-fingerprint
-adapterVersion
 ```
 
 ---
 
-## 7.5 严格快照解码
+## 6.2 允许清理 Disabled 状态下的孤儿提醒
+
+修改 `domain/decide.js`：
 
 ```js
-function invalidSnapshot(reason, raw) {
-    return err(domainError(
-        ERROR_CODES.INVALID_SNAPSHOT,
-        Object.freeze({
-            reason: reason,
-            raw: raw
-        })
-    ));
-}
+case 'DisablePlan': {
+    const registered = factsValue.registeredPlan || emptyPlan();
 
-function decodeLifecycle(raw) {
-    if (!raw || typeof raw.tag !== 'string') {
-        return invalidSnapshot('invalid_lifecycle', raw);
-    }
-
-    switch (raw.tag) {
-        case 'Disabled':
-            return ok(planDisabledState());
-
-        case 'Enabling':
-            return ok(planEnablingState());
-
-        case 'Enabled':
-            return ok(planEnabledState());
-
-        case 'Paused':
-            if (!raw.until || raw.until.tag !== 'Instant') {
-                return invalidSnapshot(
-                    'paused_without_valid_until',
-                    raw
-                );
-            }
-            return ok(planPausedState(raw.until));
-
-        case 'Blocked':
-            if (!raw.error || typeof raw.error.code !== 'string') {
-                return invalidSnapshot(
-                    'blocked_without_error',
-                    raw
-                );
-            }
-            return ok(planBlockedState(raw.error));
-
-        default:
-            // 未知 tag 不再静默改成 Disabled。
-            return invalidSnapshot(
-                'unknown_lifecycle_tag',
-                raw
-            );
-    }
-}
-```
-
-即使 raw 已标记为 `ScheduleSettings`，也应转换为原始 DTO 后重新经过智能构造器，而不是信任嵌套对象。
-
----
-
-## 7.6 校验提醒触发时间
-
-```js
-const EARLY_TOLERANCE_MS = 10 * 1000;
-const LATE_TOLERANCE_MS = 5 * 60 * 1000;
-
-function validateFiredReminder(scheduled, firedAt) {
-    const delta = firedAt.epochMilliseconds -
-        scheduled.dueAt.epochMilliseconds;
-
-    if (delta < -EARLY_TOLERANCE_MS) {
-        return err(domainError(
-            ERROR_CODES.REMINDER_FIRED_TOO_EARLY,
-            Object.freeze({ deltaMs: delta })
-        ));
-    }
-
-    if (delta > LATE_TOLERANCE_MS) {
-        return err(domainError(
-            ERROR_CODES.STALE_REMINDER_CALLBACK,
-            Object.freeze({ deltaMs: delta })
-        ));
-    }
-
-    return ok(Object.freeze({
-        tag: 'AcceptedReminderFire',
-        delayMs: Math.max(0, delta)
-    }));
-}
-```
-
-容忍度最终必须依据 GT6 真机误差实验确定，而不是长期写死。
-
----
-
-## 8. 前端修改代码
-
-## 8.1 修正页面状态写法
-
-### 当前风险写法
-
-```js
-this.data.nextBreak = model.nextBreakText;
-```
-
-### 建议写法
-
-```js
-this.nextBreak = model.nextBreakText;
-```
-
-首页改为：
-
-```js
-export default {
-    data: {
-        capabilityText: '提醒能力未确认',
-        capabilityLevel: 'warn',
-        planStatusText: '未知',
-        nextBreak: '—',
-        hasError: false,
-        errorText: ''
-    },
-
-    onShow: function () {
-        this.render();
-    },
-
-    render: function () {
-        const model = refresh();
-
-        // Lite JS 数据字段作为页面实例属性更新。
-        this.capabilityText = model.capabilityBanner.text;
-        this.capabilityLevel = model.capabilityBanner.level;
-        this.planStatusText = statusText(model.planStatus);
-        this.nextBreak = model.nextBreakText;
-
-        const errors = model.errors || [];
-        this.hasError = errors.length > 0;
-        this.errorText = errors.length > 0
-            ? (errors[0].text || errors[0].code || '')
-            : '';
-    }
-};
-```
-
-所有页面统一修复，并在 Lite 模拟器确认数据绑定行为。
-
----
-
-## 8.2 设置页必须从真实模型恢复
-
-```js
-const WEEKDAY_NAMES = [
-    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
-];
-
-const RHYTHM_PRESETS = [
-    { focus: 25, break: 5 },
-    { focus: 50, break: 10 },
-    { focus: 45, break: 15 },
-    { focus: 30, break: 5 }
-];
-
-function contains(items, value) {
-    return items.indexOf(value) >= 0;
-}
-
-function findRhythmIndex(summary) {
-    for (let index = 0; index < RHYTHM_PRESETS.length; index += 1) {
-        const preset = RHYTHM_PRESETS[index];
-        if (preset.focus === summary.focusMinutes &&
-            preset.break === summary.breakMinutes) {
-            return index;
-        }
-    }
-    return -1;
-}
-
-export default {
-    data: {
-        weekdayOn: [
-            true, true, true, true, true, false, false
-        ],
-        selectedBlock: 0,
-
-        // 默认 25/5，对应索引 0。
-        selectedRhythm: 0,
-
-        enabledFlag: false,
-        validationText: ''
-    },
-
-    onShow: function () {
-        const model = refresh();
-        const summary = model.settingsSummary;
-
-        this.enabledFlag =
-            model.planStatus === 'Enabled' ||
-            model.planStatus === 'Paused';
-
-        const selectedDays = summary.weekdays || [];
-        const states = [];
-
-        for (let index = 0; index < WEEKDAY_NAMES.length; index += 1) {
-            states.push(contains(
-                selectedDays,
-                WEEKDAY_NAMES[index]
-            ));
-        }
-
-        this.weekdayOn = states;
-
-        const rhythmIndex = findRhythmIndex(summary);
-        this.selectedRhythm = rhythmIndex >= 0
-            ? rhythmIndex
-            : 0;
-
-        // 工作块也必须匹配现有配置。
-        // 如果没有匹配预设，不得静默选中第一项。
-        this.selectedBlock = findBlockPreset(
-            summary.blocks
-        );
-    },
-
-    onSave: function () {
-        if (this.selectedBlock < 0) {
-            this.validationText =
-                '当前时段不是预设，请先选择工作时段';
-            return;
-        }
-
-        const weekdays = [];
-        for (let index = 0; index < WEEKDAY_NAMES.length; index += 1) {
-            if (this.weekdayOn[index]) {
-                weekdays.push(WEEKDAY_NAMES[index]);
-            }
-        }
-
-        if (weekdays.length === 0) {
-            this.validationText =
-                '至少选择一个工作日';
-            return;
-        }
-
-        const rhythm =
-            RHYTHM_PRESETS[this.selectedRhythm];
-
-        const result = dispatch({
-            tag: 'SettingsSaved',
-            raw: {
-                // 设置页不应通过保存动作隐式启用/关闭。
-                enabledFlag: this.enabledFlag,
-                weekdays: weekdays,
-                workBlocks:
-                    BLOCK_PRESETS[this.selectedBlock],
-                focusMinutes: rhythm.focus,
-                breakMinutes: rhythm.break
-            }
-        });
-
-        if (result.errors && result.errors.length > 0) {
-            this.validationText =
-                result.errors[0].text || '保存失败';
-            return;
-        }
-
-        navigateBackThroughPort();
-    }
-};
-```
-
-更好的产品设计是：
-
-- 设置只修改规则；
-- 启用/关闭只在首页完成；
-- 不让“保存设置”同时改变计划生命周期。
-
----
-
-## 8.3 活动页增加“仅可见时”刷新
-
-### `_app-shell.js`
-
-```js
-export function tickVisible() {
-    if (!app || !state) {
-        return model;
-    }
-
-    const nowResult = app.ports.clock.now();
-    if (nowResult.tag === 'Err') {
-        return model;
-    }
-
-    const updated = pureUpdate(model, {
-        tag: 'TickVisible',
-        now: nowResult.value.epochMilliseconds
+    const keys = registered.map(function (intent) {
+        return intent.key.value;
     });
 
-    model = updated.model;
-    return model;
+    if (state.planLifecycle.tag === 'Disabled') {
+        if (keys.length === 0) {
+            // 状态和系统注册表都已经关闭，真正幂等。
+            return ok(decision([], []));
+        }
+
+        // 状态虽已关闭，但系统中仍有孤儿提醒。
+        // 不产生新的领域事件，只执行清理。
+        return decideSnapshot(state, [], [
+            cancelReminders(keys)
+        ]);
+    }
+
+    return decideSnapshot(state, [
+        planDisabled()
+    ], [
+        cancelReminders(keys)
+    ]);
 }
 ```
 
-### `break-active/index.js`
+同时修改 `ReconcilePlan`：
+
+```js
+case 'ReconcilePlan': {
+    const active =
+        state.planLifecycle.tag === 'Enabled' ||
+        state.planLifecycle.tag === 'Paused' ||
+        state.planLifecycle.tag === 'Enabling';
+
+    if (!active) {
+        const registered = factsValue.registeredPlan || emptyPlan();
+
+        const orphanKeys = registered.map(function (intent) {
+            return intent.key.value;
+        });
+
+        if (orphanKeys.length === 0) {
+            return ok(decision([], []));
+        }
+
+        // Disabled 或 Blocked 状态下，系统不应保留任何 Move25 提醒。
+        return decideSnapshot(state, [], [
+            cancelReminders(orphanKeys)
+        ]);
+    }
+
+    return reconcileEffects(state, factsValue, []);
+}
+```
+
+---
+
+## 6.3 启动后自动对账
+
+修改 `_app-shell.js`：
 
 ```js
 import {
-    dispatch,
-    refresh,
-    tickVisible
-} from '../_app-shell.js';
+    observeCapability,
+    reconcilePlan
+} from '../domain/commands.js';
 
-function formatSeconds(seconds) {
-    const safe =
-        typeof seconds === 'number' && seconds >= 0
-            ? seconds
-            : 0;
-    const minutes = Math.floor(safe / 60);
-    const rest = safe % 60;
-
-    return (minutes < 10 ? '0' : '') +
-        minutes + ':' +
-        (rest < 10 ? '0' : '') +
-        rest;
+function addShellError(text, code) {
+    model = Object.freeze(Object.assign({}, model, {
+        errors: Object.freeze((model.errors || []).concat([{
+            text: text,
+            code: code
+        }]))
+    }));
 }
 
-export default {
-    data: {
-        remainingText: '05:00',
-        actions: []
-    },
+function bootApp(instance) {
+    const bootResult = instance.boot();
 
-    timerId: -1,
-    elapsedDispatched: false,
-
-    onShow: function () {
-        this.render();
-        this.startVisibleTicker();
-    },
-
-    onHide: function () {
-        this.stopVisibleTicker();
-    },
-
-    onDestroy: function () {
-        this.stopVisibleTicker();
-    },
-
-    render: function () {
-        const model = refresh();
-        this.applyModel(model);
-    },
-
-    applyModel: function (model) {
-        this.remainingText =
-            formatSeconds(model.remainingSeconds);
-        this.actions = model.currentGuidance
-            ? model.currentGuidance.actions
-            : [];
-    },
-
-    startVisibleTicker: function () {
-        this.stopVisibleTicker();
-
-        const self = this;
-
-        // 仅用于页面显示，不承担后台计时。
-        this.timerId = setInterval(function () {
-            const model = tickVisible();
-            self.applyModel(model);
-
-            if (model.remainingSeconds === 0 &&
-                !self.elapsedDispatched) {
-                self.elapsedDispatched = true;
-
-                // 新增 BreakElapsed 消息和领域命令。
-                dispatch({ tag: 'BreakElapsed' });
-
-                self.stopVisibleTicker();
-            }
-        }, 1000);
-    },
-
-    stopVisibleTicker: function () {
-        if (this.timerId >= 0) {
-            clearInterval(this.timerId);
-            this.timerId = -1;
-        }
-    },
-
-    onComplete: function () {
-        this.stopVisibleTicker();
-        dispatch({ tag: 'CompletePressed' });
-    },
-
-    onSkip: function () {
-        this.stopVisibleTicker();
-        dispatch({ tag: 'SkipBreakPressed' });
+    if (bootResult.tag === 'Err') {
+        addShellError(
+            '快照损坏或无法读取',
+            bootResult.error.code
+        );
+        return null;
     }
-};
-```
 
-注意：
+    // 先建立已持久化状态。
+    state = bootResult.state;
 
-- `setInterval` 只在页面可见时刷新文本；
-- 真正的 5 分钟完成仍应注册短时系统提醒；
-- 页面重新显示时从 `endsAt` 重算；
-- 需要在 Lite 模拟器验证定时器语法和生命周期。
+    const probe = instance.probeCapabilities();
 
----
+    if (probe.tag === 'Ok') {
+        const observed = instance.handleCommand(
+            state,
+            observeCapability(probe.value)
+        );
 
-## 8.4 首页改为圆屏友好的滚动或两级菜单
-
-建议首页只放：
-
-- 能力状态；
-- 下次活动；
-- 立即活动；
-- 启用/关闭；
-- 更多。
-
-### `pages/home/index.hml`
-
-```html
-<div class="container">
-    <text class="banner {{capabilityLevel}}">
-        {{capabilityText}}
-    </text>
-
-    <text class="status">
-        计划：{{planStatusText}}
-    </text>
-
-    <text class="next">
-        {{nextBreak}}
-    </text>
-
-    <text class="caption">
-        下次活动
-    </text>
-
-    <text class="error" if="{{hasError}}">
-        {{errorText}}
-    </text>
-
-    <button class="btn primary"
-            onclick="onStartNow">
-        立即活动
-    </button>
-
-    <button class="btn"
-            onclick="onToggle">
-        {{toggleText}}
-    </button>
-
-    <button class="btn"
-            onclick="onMore">
-        更多
-    </button>
-</div>
-```
-
-新增 `pages/more`，使用滚动列表：
-
-```html
-<list class="menu">
-    <list-item>
-        <button class="menu-btn"
-                onclick="onPauseHour">
-            暂停一小时
-        </button>
-    </list-item>
-
-    <list-item>
-        <button class="menu-btn"
-                onclick="onPauseToday">
-            暂停今天
-        </button>
-    </list-item>
-
-    <list-item>
-        <button class="menu-btn"
-                onclick="onSkipNext">
-            跳过下一次
-        </button>
-    </list-item>
-
-    <list-item>
-        <button class="menu-btn"
-                onclick="onSettings">
-            设置
-        </button>
-    </list-item>
-
-    <list-item>
-        <button class="menu-btn"
-                onclick="onDiagnostics">
-            诊断
-        </button>
-    </list-item>
-</list>
-```
-
-页面中的导航必须发送 MVU 消息或调用 NavigationPort，不再直接导入 `@system.router`。
-
----
-
-## 8.5 将动作 ID 映射为可本地化文案
-
-```js
-const ACTION_TEXT = Object.freeze({
-    stand_and_walk: '起身走动 2 分钟',
-    simple_stretch: '轻柔伸展肩背',
-    look_far: '看向远处并眨眼',
-    neck_rolls: '缓慢左右转动头部',
-    shoulder_open: '肩膀向后打开',
-    hip_circles: '轻柔活动髋部',
-    ankle_flex: '活动脚踝和提踵',
-    wrist_stretch: '放松手腕和前臂',
-    back_extension: '站立伸展背部'
-});
-
-function actionText(key) {
-    return ACTION_TEXT[key] || '轻松活动一下';
-}
-
-function guidanceFor(session) {
-    // 查找领域 guidance 后：
-    const displayActions = [];
-
-    for (let index = 0; index < item.actions.length; index += 1) {
-        displayActions.push(
-            actionText(item.actions[index])
+        if (observed.tag === 'Ok') {
+            state = observed.state;
+        } else {
+            addShellError(
+                '能力状态保存失败',
+                observed.error.code
+            );
+        }
+    } else {
+        // 探针失败必须可见，但不能阻止读取已有状态。
+        addShellError(
+            '提醒能力探测失败',
+            probe.error && probe.error.code
         );
     }
 
-    return Object.freeze({
-        id: item.id,
-        actions: Object.freeze(displayActions)
+    // 启动后必须进行一次系统注册表对账。
+    // 这一步负责：
+    // 1. 清理孤儿提醒；
+    // 2. 补注册缺失提醒；
+    // 3. 修正时区或时间变化；
+    // 4. 完成 Enabling 状态。
+    const reconciled = instance.handleCommand(
+        state,
+        reconcilePlan()
+    );
+
+    if (reconciled.tag === 'Ok') {
+        state = reconciled.state;
+        model = projectModel(
+            state,
+            reconciled.facts,
+            model.errors
+        );
+    } else {
+        addShellError(
+            '启动对账失败',
+            reconciled.error && reconciled.error.code
+        );
+    }
+
+    return state;
+}
+```
+
+---
+
+## 6.4 修复递归规则丢失
+
+建议把提醒端口升级为请求对象，而不是继续增加位置参数。
+
+### `ports/reminder-port.js`
+
+```js
+/**
+ * register(request)
+ *
+ * request:
+ * {
+ *   intents: ReminderIntent[],
+ *   recurrenceRules: RecurrenceRule[]
+ * }
+ *
+ * recurrenceRules 为空时表示一次性绝对时间注册。
+ * 非空时适配器必须明确支持递归注册，
+ * 不能静默忽略规则后返回成功。
+ */
+```
+
+### `app/effect-interpreter.js`
+
+```js
+case 'RegisterReminders':
+    return ports.reminders.register(Object.freeze({
+        intents: effect.intents,
+
+        // 规则必须传入适配器，不能在解释器中丢弃。
+        recurrenceRules: effect.recurrenceRules ||
+            Object.freeze([])
+    }));
+```
+
+### `adapters/memory/recording-reminder.js`
+
+```js
+register(request) {
+    const input = Array.isArray(request)
+        // 临时向后兼容旧测试。
+        ? { intents: request, recurrenceRules: [] }
+        : request;
+
+    const intents = input && Array.isArray(input.intents)
+        ? input.intents
+        : [];
+
+    const recurrenceRules =
+        input && Array.isArray(input.recurrenceRules)
+            ? input.recurrenceRules
+            : [];
+
+    // 测试适配器记录规则，供契约测试断言。
+    lastRecurrenceRules = recurrenceRules.slice();
+
+    // 后续保持原来的注册逻辑。
+}
+```
+
+### 策略层修正
+
+```js
+if (strategy.tag === 'RecurringCalendarStrategy') {
+    // 不要先按具体日期截断。
+    // 应由 buildRecurrenceRules 先折叠成周规则。
+    return Object.freeze(plan.slice());
+}
+```
+
+随后在生成规则后检查：
+
+```js
+const rules = buildRecurrenceRules(desired);
+
+if (
+    strategy.tag === 'RecurringCalendarStrategy' &&
+    rules.length > strategy.maxPendingCount
+) {
+    return err(domainError(
+        ERROR_CODES.REMINDER_CAPACITY_EXCEEDED,
+        Object.freeze({
+            ruleCount: rules.length,
+            capacity: strategy.maxPendingCount
+        })
+    ));
+}
+```
+
+---
+
+## 6.5 严格重建存储设置
+
+不要因为对象自称 `ScheduleSettings` 就直接信任它。
+
+```js
+import { parseScheduleInput } from './settings.js';
+
+function decodeStoredSettings(raw) {
+    if (
+        !raw ||
+        raw.tag !== 'ScheduleSettings' ||
+        !Array.isArray(raw.weekdays) ||
+        !Array.isArray(raw.workBlocks) ||
+        !raw.rhythm
+    ) {
+        return invalidSnapshot(
+            'invalid_schedule_settings_shape',
+            raw
+        );
+    }
+
+    // 把存储结构降为原始值，
+    // 再通过正式智能构造器完整重建。
+    return parseScheduleInput({
+        enabledFlag: raw.enabledFlag === true,
+
+        weekdays: raw.weekdays.map(function (day) {
+            return day && day.value;
+        }),
+
+        workBlocks: raw.workBlocks.map(function (block) {
+            return {
+                start: block && block.start &&
+                    block.start.value,
+                end: block && block.end &&
+                    block.end.value
+            };
+        }),
+
+        focusMinutes:
+            raw.rhythm.focusMinutes &&
+            raw.rhythm.focusMinutes.value,
+
+        breakMinutes:
+            raw.rhythm.breakMinutes &&
+            raw.rhythm.breakMinutes.value,
+
+        version:
+            raw.version && raw.version.value
     });
 }
 ```
 
-正式项目应将这些文案移入资源文件，以便多语言和审校。
+替换原逻辑：
 
----
+```js
+const settingsResult = decodeStoredSettings(raw.settings);
 
-## 9. 测试补充
+if (settingsResult.tag === 'Err') {
+    return settingsResult;
+}
 
-### 9.1 宿主测试
-
-必须新增：
-
-1. `createHostApp({})` 明确失败，不再穿透 undefined；
-2. RegisterReminders 失败时，状态不得是 Enabled；
-3. Store 保存失败时返回 Err/Dirty；
-4. listRegistered 失败时，不得当作空列表继续注册；
-5. 时区变化导致 fingerprint 变化并重新注册；
-6. 同 key 不同 dueAt 不得归类 unchanged；
-7. 过早回调被拒绝；
-8. 超时回调被诊断为 stale；
-9. 未知快照嵌套 tag 返回 INVALID_SNAPSHOT；
-10. `ScheduleSettings` 伪 tag 但内部损坏时拒绝；
-11. 设置页打开后保存不改变原设置；
-12. 25/5 默认不会变成 50/10；
-13. 七天工作日往返不丢失；
-14. `BreakElapsed` 只触发一次；
-15. 效果失败状态可在 UI 明确显示；
-16. 所有页面不得直接导入 `@system.router`；
-17. 设备组合根不得引用 memory adapters；
-18. 正式 app.js 不得调用 createHostApp。
-
-### 9.2 DevEco 模拟器
-
-验证：
-
-- `.hml` 动态 class；
-- `if`、`for`；
-- `this.field` 响应式更新；
-- `list/list-item`；
-- 页面生命周期；
-- `router.replace/back`；
-- 页面可见 ticker；
-- 466×466 圆屏裁切；
-- 字体和按钮触摸面积；
-- HAP 体积和页面资源限制。
-
-### 9.3 GT6 真机
-
-能力门禁：
-
-| Gate | 验收 |
-|---|---|
-| G0 | 签名 HAP 可安装、页面可运行、日志可读 |
-| G1 | 存储/振动/提醒模块可编译 |
-| G2 | 权限和开放能力可取得 |
-| G3 | 前台 60 秒提醒触发 |
-| G4 | 返回表盘和息屏仍触发 |
-| G5 | 应用退出后仍触发 |
-| G6 | 手机断连后仍触发 |
-| G7 | 重启、DND、低电量、容量和误差已记录 |
-
-只有 G0–G6 满足，才能将核心产品状态标记为可靠独立提醒。
-
----
-
-## 10. 建议实施顺序
-
-### PR 1：修复宿主/设备装配边界
-
-- 新增 `createAppRuntime`；
-- `createHostApp` 必须传时钟；
-- `app.js` 不再调用 host shell；
-- Probe 与产品构建分离。
-
-### PR 2：修复效果结果与状态一致性
-
-- 启用采用 outcome event；
-- 持久化最后执行；
-- critical effect 失败不返回成功；
-- 增加 Dirty/OperationalStatus。
-
-### PR 3：完善时间物化与对账
-
-- ScheduledReminder；
-- dueAt/fingerprint；
-- 时区变化更新；
-- callback tolerance。
-
-### PR 4：严格快照解码
-
-- 所有嵌套值重新验证；
-- 未知 tag 显式失败；
-- 增加 schema v2。
-
-### PR 5：修复 MVU 和页面响应式
-
-- `this.data.x` → `this.x`；
-- 错误不被 projection 清空；
-- 导航统一走端口；
-- 诊断查询端口化。
-
-### PR 6：圆屏 UI 重构
-
-- 首页减负；
-- 更多菜单；
-- 设置滚动/拆页；
-- 中文动作映射；
-- 七天工作日。
-
-### PR 7：可见倒计时和活动结束语义
-
-- TickVisible；
-- BreakElapsed；
-- 活动结束系统短提醒；
-- 不重复震动。
-
-### PR 8：平台能力探针
-
-- 存储；
-- 振动；
-- 提醒；
-- 容量；
-- 生命周期矩阵。
-
-### PR 9：真实平台适配器
-
-只实现已获得 `SDK_CONFIRMED`/`DEVICE_CONFIRMED` 的能力。
-
-### PR 10：发布治理
-
-- 最终包名；
-- 签名；
-- 首页；
-- 最小权限；
-- 隐私声明；
-- 邀请测试；
-- 功耗 A/B。
-
----
-
-## 11. 最终验收标准
-
-### 架构
-
-- `domain/` 零平台依赖；
-- 页面不直接导入平台模块；
-- host/device composition 分离；
-- 端口不暴露测试私有方法；
-- 效果结果进入状态机；
-- 所有预期错误显式建模。
-
-### 功能
-
-- 默认 25/5；
-- 工作日和时段正确；
-- 午休、周末不提醒；
-- 暂停、跳过、启用、关闭幂等；
-- 活动自动到期；
-- 设置重启后保留；
-- 时区变化后重新注册；
-- 损坏快照可诊断和重置。
-
-### 可靠性
-
-- 系统注册失败时不显示 Enabled；
-- 持久化失败时不伪装成功；
-- 重复/延迟/过早回调可区分；
-- 对账最终收敛；
-- 真机行为有证据记录。
-
-### UI
-
-- 466×466 无关键内容裁切；
-- 主操作单手可触达；
-- 文案不是内部 key；
-- 能力降级明显；
-- 错误可理解；
-- 页面重新打开后倒计时正确。
-
-### 发布
-
-- 不使用模板包名；
-- 签名配置完整；
-- 无密钥、UDID、证书进入 Git；
-- Probe 不作为正式首页；
-- README 状态与真机证据一致。
-
----
-
-## 12. 审阅结论
-
-该项目现在已经跨过“架构概念演示”阶段，具备值得继续投资的领域核心和测试基础。但它尚未跨过“设备运行闭环”：
-
-```text
-真实时间
-→ 真实存储
-→ 真实系统提醒
-→ 真实振动
-→ 真实页面导航
-→ 效果结果反馈
-→ 状态一致
-→ GT6 真机证据
+const settings = settingsResult.value;
 ```
 
-下一步不应继续扩张领域功能或增加健康平台范围。应优先解决：
+增加整数验证：
 
-1. 宿主组合根误用于正式入口；
-2. 效果失败仍演化成功；
-3. 平台能力探针；
-4. 圆屏 UI 和页面响应式；
-5. 真实适配器与真机验收。
+```js
+function isNonNegativeInteger(value) {
+    return Number.isFinite(value) &&
+        Math.floor(value) === value &&
+        value >= 0;
+}
 
-在这些问题解决前，发布结论应维持：
+if (!isNonNegativeInteger(raw.revision)) {
+    return invalidSnapshot(
+        'invalid_revision',
+        raw.revision
+    );
+}
+
+if (!isNonNegativeInteger(raw.guidanceIndex)) {
+    return invalidSnapshot(
+        'invalid_guidance_index',
+        raw.guidanceIndex
+    );
+}
+```
+
+活动会话还应增加：
+
+```js
+if (
+    typeof raw.sessionId !== 'string' ||
+    raw.sessionId.length === 0 ||
+    raw.endsAt.epochMilliseconds <=
+        raw.startedAt.epochMilliseconds
+) {
+    return invalidSnapshot(
+        'invalid_break_active_interval',
+        raw
+    );
+}
+```
+
+---
+
+## 6.6 校验提醒回调和提醒键
+
+```js
+case 'HandleReminderFired': {
+    const firedAt = command.firedAt || factsValue.now;
+
+    if (
+        !firedAt ||
+        firedAt.tag !== 'Instant' ||
+        !Number.isFinite(firedAt.epochMilliseconds) ||
+        Math.floor(firedAt.epochMilliseconds) !==
+            firedAt.epochMilliseconds
+    ) {
+        return err(domainError(
+            ERROR_CODES.INVALID_INSTANT,
+            command.firedAt
+        ));
+    }
+
+    // 后续统一使用已验证 firedAt。
+}
+```
+
+`StartBreak` 增加 key 一致性：
+
+```js
+case 'StartBreak': {
+    if (state.breakSession.tag !== 'Due') {
+        return err(domainError(
+            ERROR_CODES.INVALID_STATE_TRANSITION,
+            {
+                from: state.breakSession.tag,
+                command: command.tag
+            }
+        ));
+    }
+
+    const commandKey =
+        command.reminderKey &&
+        command.reminderKey.value
+            ? command.reminderKey.value
+            : command.reminderKey;
+
+    const expectedKey =
+        state.breakSession.reminderKey.value;
+
+    if (commandKey !== expectedKey) {
+        return err(domainError(
+            ERROR_CODES.INVALID_STATE_TRANSITION,
+            Object.freeze({
+                reason: 'REMINDER_KEY_MISMATCH',
+                expected: expectedKey,
+                actual: commandKey
+            })
+        ));
+    }
+
+    return startActiveBreak(
+        state,
+        factsValue,
+        state.breakSession.reminderKey,
+        true
+    );
+}
+```
+
+---
+
+# 七、前端具体修改代码
+
+## 7.1 活动页面每次显示时重置到期标志
+
+```js
+onShow() {
+    // Lite 页面实例可能被复用。
+    // 每个新的活动页面显示周期都必须允许派发一次到期事件。
+    this.elapsedDispatched = false;
+
+    this.render();
+    this.startVisibleTicker();
+}
+```
+
+还应在 ticker 中检查当前状态：
+
+```js
+this.timerId = setInterval(function () {
+    const model = refresh();
+
+    self.remainingText =
+        formatSeconds(model.remainingSeconds);
+
+    if (model.breakStatus !== 'Active') {
+        // 状态已被其他页面或启动归约改变，立即停止定时器。
+        self.stopVisibleTicker();
+        return;
+    }
+
+    if (
+        model.remainingSeconds === 0 &&
+        !self.elapsedDispatched
+    ) {
+        self.elapsedDispatched = true;
+
+        const nextModel = dispatch({
+            tag: 'BreakElapsed'
+        });
+
+        self.stopVisibleTicker();
+
+        if ((nextModel.errors || []).length === 0) {
+            navigateTo('home');
+        }
+    }
+}, 1000);
+```
+
+---
+
+## 7.2 诊断页显示真正的最新记录
+
+替换反向循环：
+
+```js
+const lines = [];
+const entries = snapshot.entries || [];
+
+// readRecent 已经是 newest-first。
+// 从 0 开始即可得到最新八条。
+const count = Math.min(entries.length, 8);
+
+for (let index = 0; index < count; index += 1) {
+    const entry = entries[index];
+    let line = entry.tag;
+
+    if (entry.code) {
+        line += ' ' + entry.code;
+    }
+
+    if (entry.effect) {
+        line += ' [' + entry.effect + ']';
+    }
+
+    lines.push(line);
+}
+
+this.entries = lines;
+```
+
+---
+
+## 7.3 保留非预设设置
+
+### 修改匹配函数
+
+```js
+function matchBlockIndex(blocks, presets) {
+    const target = (blocks || []).join('|');
+
+    for (let index = 0; index < presets.length; index += 1) {
+        if (blockStrings(presets[index]).join('|') === target) {
+            return index;
+        }
+    }
+
+    // -1 表示当前设置是自定义值，
+    // 不能擅自映射到第一个预设。
+    return -1;
+}
+
+function matchRhythmIndex(focus, brk, presets) {
+    for (let index = 0; index < presets.length; index += 1) {
+        if (
+            presets[index].focus === focus &&
+            presets[index].break === brk
+        ) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+```
+
+### 在 UI Model 中提供原始数字
+
+```js
+function settingsSummaryFor(settings) {
+    const rawBlocks = [];
+
+    const blocks = settings.workBlocks || [];
+
+    for (let index = 0; index < blocks.length; index += 1) {
+        rawBlocks.push(Object.freeze({
+            start: blocks[index].start.value,
+            end: blocks[index].end.value
+        }));
+    }
+
+    return Object.freeze({
+        weekdays: Object.freeze(weekdays),
+        blocks: Object.freeze(blockStrings),
+        rawBlocks: Object.freeze(rawBlocks),
+
+        focusMinutes:
+            settings.rhythm.focusMinutes.value,
+
+        breakMinutes:
+            settings.rhythm.breakMinutes.value
+    });
+}
+```
+
+### 设置页保存时保留原值
+
+```js
+data: {
+    selectedBlock: -1,
+    selectedRhythm: -1,
+
+    // 保存页面打开时读取到的自定义值。
+    originalBlocks: [],
+    originalFocusMinutes: 25,
+    originalBreakMinutes: 5,
+
+    hasError: false,
+    errorText: ''
+},
+
+restoreFromModel() {
+    const model = refresh();
+    const summary = model.settingsSummary || {};
+
+    this.originalBlocks =
+        (summary.rawBlocks || []).slice();
+
+    this.originalFocusMinutes =
+        summary.focusMinutes;
+
+    this.originalBreakMinutes =
+        summary.breakMinutes;
+
+    this.selectedBlock = matchBlockIndex(
+        summary.blocks,
+        BLOCK_PRESETS
+    );
+
+    this.selectedRhythm = matchRhythmIndex(
+        summary.focusMinutes,
+        summary.breakMinutes,
+        RHYTHM_PRESETS
+    );
+
+    // 只有命中预设时才高亮。
+    for (
+        let index = 0;
+        index < BLOCK_PRESETS.length;
+        index += 1
+    ) {
+        this['blockClass' + index] =
+            index === this.selectedBlock
+                ? 'on'
+                : '';
+    }
+}
+```
+
+保存逻辑：
+
+```js
+onSave() {
+    const weekdays = [];
+
+    for (
+        let index = 0;
+        index < WEEKDAY_NAMES.length;
+        index += 1
+    ) {
+        if (this.weekdayOn[index]) {
+            weekdays.push(WEEKDAY_NAMES[index]);
+        }
+    }
+
+    const workBlocks =
+        this.selectedBlock >= 0
+            ? BLOCK_PRESETS[this.selectedBlock]
+            : this.originalBlocks;
+
+    const rhythm =
+        this.selectedRhythm >= 0
+            ? RHYTHM_PRESETS[this.selectedRhythm]
+            : {
+                focus: this.originalFocusMinutes,
+                break: this.originalBreakMinutes
+            };
+
+    const nextModel = dispatch({
+        tag: 'SettingsSaved',
+        raw: {
+            enabledFlag: this.enabledFlag,
+            weekdays: weekdays,
+            workBlocks: workBlocks,
+            focusMinutes: rhythm.focus,
+            breakMinutes: rhythm.break
+        }
+    });
+
+    const errors = nextModel.errors || [];
+
+    if (errors.length === 0) {
+        // 只有保存、提醒对账和持久化均成功才离开页面。
+        navigateTo('home');
+        return;
+    }
+
+    this.hasError = true;
+    this.errorText =
+        errors[errors.length - 1].text ||
+        errors[errors.length - 1].code ||
+        '保存失败';
+}
+```
+
+---
+
+## 7.4 修正 Due 页面指导动作
+
+不要在 Due 状态固定使用第一组指导动作。
+
+```js
+function guidanceFor(session, guidanceIndex) {
+    if (!session) {
+        return null;
+    }
+
+    if (
+        session.tag === 'Active' ||
+        session.tag === 'Due'
+    ) {
+        const selectedIndex =
+            session.tag === 'Active'
+                ? findGuidanceIndexById(
+                    session.guidanceId
+                )
+                : guidanceIndex;
+
+        const item = guidanceAt(selectedIndex);
+
+        return Object.freeze({
+            id: item.id,
+            actions: item.actions
+        });
+    }
+
+    return null;
+}
+```
+
+投影时调用：
+
+```js
+currentGuidance: guidanceFor(
+    session,
+    state.guidanceIndex
+)
+```
+
+更严格的设计是，在 `BreakBecameDue` 时就选定并保存 `guidanceId`，保证提醒页和活动页绝对一致。
+
+---
+
+## 7.5 页面操作失败时不要立即跳转
+
+更多页面可抽取：
+
+```js
+function dispatchThenHome(message) {
+    const nextModel = dispatch(message);
+    const errors = nextModel.errors || [];
+
+    if (errors.length > 0) {
+        // 保持当前页面，让用户看到失败状态。
+        return false;
+    }
+
+    navigateTo('home');
+    return true;
+}
+
+export default {
+    onPauseToday() {
+        dispatchThenHome({
+            tag: 'PauseTodayPressed'
+        });
+    },
+
+    onPauseHour() {
+        dispatchThenHome({
+            tag: 'PauseOneHourPressed'
+        });
+    },
+
+    onSkipNext() {
+        dispatchThenHome({
+            tag: 'SkipNextPressed'
+        });
+    }
+};
+```
+
+---
+
+# 八、建议补充的测试
+
+## 8.1 持久化失败不得推进全局状态
+
+```js
+test('workflow: persistence failure does not expose candidate revision', () => {
+    const app = createHostApp(...);
+    let state = boot(app);
+
+    app.ports.store._failNextSave();
+
+    const result = app.handleCommand(
+        state,
+        observeCapability(SUPPORTED)
+    );
+
+    assert.equal(result.tag, 'Err');
+
+    // 返回状态仍是已持久化版本。
+    assert.equal(result.state.revision, state.revision);
+
+    // 存储修订也没有改变。
+    assert.equal(
+        app.ports.store.readStatus().value.revision,
+        state.revision
+    );
+});
+```
+
+## 8.2 取消失败不得进入 Disabled
+
+```js
+test('workflow: cancel failure does not commit disabled state', () => {
+    // 使用可注入 cancel 失败的提醒适配器。
+    // 断言：
+    // 1. 命令返回 Err；
+    // 2. state 仍是 Enabled；
+    // 3. 快照仍是 Enabled；
+    // 4. 下一次 Disable 可重试。
+});
+```
+
+## 8.3 启动自动对账
+
+```js
+test('shell: boot automatically reconciles expired session and registry', () => {
+    // 快照中保存 Active；
+    // 当前时间晚于 endsAt；
+    // 初始化 shell；
+    // 断言状态已经 Finished；
+    // 不应要求页面手动发送 ReconcilePressed。
+});
+```
+
+## 8.4 递归规则必须到达适配器
+
+```js
+test('effect interpreter forwards recurrence rules', () => {
+    // 构造 RegisterReminders effect；
+    // 调用 interpretEffect；
+    // 断言适配器收到完整 recurrenceRules。
+});
+```
+
+## 8.5 损坏 tag 不得绕过解码
+
+```js
+test('snapshot rejects spoofed ScheduleSettings tags', () => {
+    const raw = {
+        tag: 'Snapshot',
+        schemaVersion: 1,
+        revision: 0,
+        settings: {
+            tag: 'ScheduleSettings',
+            weekdays: [
+                { tag: 'Weekday', value: 'InvalidDay' }
+            ]
+        }
+    };
+
+    assert.equal(
+        rehydrateFromRaw(raw).tag,
+        'Err'
+    );
+});
+```
+
+## 8.6 自定义设置往返不变
+
+```js
+test('settings: opening and saving custom values is lossless', () => {
+    // 初始设置 40/8 和自定义时段；
+    // 执行 restoreFromModel + onSave；
+    // 断言领域设置完全相同。
+});
+```
+
+## 8.7 页面复用后的第二次活动仍能到期
+
+```js
+test('break-active: elapsed event resets for every visible session', () => {
+    // 模拟同一页面实例 onShow -> 到期；
+    // 再次 onShow -> 到期；
+    // 断言 BreakElapsed 共发送两次。
+});
+```
+
+## 8.8 诊断事件顺序
+
+```js
+test('diagnostics page displays newest eight entries', () => {
+    // 写入 12 条；
+    // 断言页面第一条是第 12 条；
+    // 最后一条是第 5 条。
+});
+```
+
+## 8.9 DST 边界测试
+
+需要使用具备 DST 行为的测试日历适配器，断言同一当地时间在 DST 切换前后使用不同 UTC offset。
+
+## 8.10 延迟回调与对账竞态
+
+覆盖：
 
 ```text
-Product: No-Go
-Architecture prototype: Go
-GT6 capability research: Go
+10:25 到期
+10:26 执行 Reconcile
+10:28 收到系统回调
 ```
+
+确保合法迟到回调不会因提前清理而消失。
+
+---
+
+# 九、注意点
+
+## 9.1 不要把更多单元测试等同于真机可靠性
+
+宿主测试能够证明：
+
+- 日程算法；
+- 状态转换；
+- 端口契约；
+- 错误映射；
+- 快照迁移。
+
+但不能证明：
+
+- 息屏后是否触发；
+- 进程退出后是否触发；
+- 重启后是否保留；
+- 手机断连后是否触发；
+- 系统容量限制；
+- 免打扰、低电量和省电模式行为。
+
+## 9.2 平台适配器必须保留语义键
+
+真实提醒适配器不能只保存系统 reminder ID。必须维护：
+
+```text
+semanticKey ↔ systemId ↔ dueAt
+```
+
+否则：
+
+- 时区重调度；
+- 幂等注册；
+- 取消；
+- 对账；
+
+都无法正确实现。
+
+## 9.3 系统副作用不能假定事务性
+
+存储、提醒注册和提醒取消不属于同一个事务，因此应用必须设计为：
+
+```text
+尝试执行
+→ 记录结果
+→ 持久化
+→ 失败后自动对账
+→ 最终收敛
+```
+
+如果平台故障率较高，建议进一步引入轻量持久化操作日志：
+
+```text
+PendingOperation
+AppliedOperation
+CommittedState
+```
+
+这相当于设备端简化版 outbox，而不是试图制造跨系统 ACID 事务。
+
+## 9.4 不要让诊断查询改变状态
+
+`diagnosticsSnapshot()` 当前只调用正式只读端口，这是正确方向。诊断页面不能触发提醒注册或自动修复，以免查看诊断本身改变问题现场。
+
+## 9.5 `settlePlanLifecycle` 不应把缺少注册结果视为成功
+
+当前：
+
+```js
+if (!registration || registration.tag === 'Registered')
+```
+
+把 `undefined` 当成注册成功。
+
+更安全的规则应为：
+
+```js
+if (hasEnable && !registration) {
+    return Err(MISSING_REGISTRATION_OUTCOME);
+}
+```
+
+只有不涉及注册的命令才允许 `registration === undefined`。
+
+---
+
+# 十、建议实施顺序
+
+## 第一批：修复状态一致性
+
+1. 持久化失败返回 `Err`；
+2. `refresh()` 不得保留未保存状态；
+3. 取消提醒失败不得提交 Disabled；
+4. Disabled 状态允许清理孤儿提醒；
+5. 启动自动执行 Reconcile。
+
+这是最优先的一批。未完成前，不建议继续扩展平台适配器。
+
+## 第二批：修复提醒策略
+
+1. 传递 recurrenceRules；
+2. 修正递归容量计算；
+3. 解决晚到提醒与对账竞态；
+4. 校验 firedAt 和 reminderKey；
+5. 逐条使用 CalendarPort.resolve 处理未来日期。
+
+## 第三批：修复前端状态
+
+1. 活动页面重置到期标志；
+2. 保留自定义设置；
+3. 命令失败时阻止跳转；
+4. 修正诊断顺序；
+5. 统一 Due 和 Active 指导内容。
+
+## 第四批：平台接入
+
+1. Lite Clock Adapter；
+2. Lite Calendar Adapter；
+3. Lite Store Adapter；
+4. Reminder Adapter；
+5. Haptics Adapter；
+6. Persistent Diagnostics Adapter；
+7. Router Adapter 异常处理。
+
+## 第五批：发布门禁
+
+1. DevEco debug 构建通过；
+2. DevEco release 构建通过；
+3. 签名配置完成；
+4. vendor 和 bundle 标识最终确认；
+5. 模拟器圆屏布局验证；
+6. GT6 真机能力探针；
+7. 三天后台提醒可靠性试验；
+8. 重启、息屏、断连、低电量、免打扰测试；
+9. README 与实际测试数量同步。
+
+---
+
+# 十一、最终评价
+
+该仓库不是“架构混乱、需要推倒重来”的项目。相反，它已经建立了较强的领域边界、能力门禁和测试结构。
+
+真正的问题集中在**命令提交协议和副作用一致性**：
+
+```text
+执行外部副作用
+→ 演化状态
+→ 保存失败
+→ 仍返回成功
+```
+
+这是当前最危险的路径。
+
+因此，最合理的策略不是继续增加页面或领域功能，而是先把以下不变量写入代码和测试：
+
+```text
+1. 未持久化的状态不得暴露为已提交状态。
+
+2. 系统提醒取消失败时，不得宣称计划已经关闭。
+
+3. 每次启动必须自动把系统注册表、持久化快照和领域期望计划收敛到一致状态。
+
+4. 递归规则、时区解析和平台错误不能在适配器边界被静默丢弃。
+
+5. 用户未修改设置时，保存操作必须保持语义完全不变。
+```
+
+完成这些修改后，该项目才适合进入真实 GT6 平台适配和能力探针阶段。

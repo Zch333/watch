@@ -21,9 +21,13 @@ export default {
         this.capability = snapshot.capability ? snapshot.capability.tag : 'Unknown';
         this.registeredCount = snapshot.registeredKeys.length;
         this.storeRevision = snapshot.storeRevision;
+        // readRecent is already newest-first: the first entry is the most
+        // recent. Walking from the tail used to show the OLDEST entries and
+        // hid the latest ones (P1-11).
         const lines = [];
         const entries = snapshot.entries || [];
-        for (let index = entries.length - 1; index >= Math.max(0, entries.length - 8); index -= 1) {
+        const count = Math.min(entries.length, 8);
+        for (let index = 0; index < count; index += 1) {
             const entry = entries[index];
             let line = entry.tag;
             if (entry.code) {

@@ -9,6 +9,7 @@ import { initialDomainState } from '../domain/model.js';
 import { localToInstant } from '../domain/calendar.js';
 import { localDate, minuteOfDay } from '../domain/values.js';
 import { capabilitySupported } from '../domain/state.js';
+import { createMemoryDiagnostics } from '../adapters/memory/memory-diagnostics.js';
 
 const OFFSET = 480;
 const SUPPORTED = capabilitySupported({ maxPendingCount: 30 });
@@ -137,4 +138,70 @@ test('more: secondary actions dispatch through the MVU pipeline', async () => {
     page.onSettings();
     page.onDiagnostics();
     assert.equal(getModel().errors.length, 0);
+});
+
+test('settings: opening and saving custom (non-preset) values is lossless', async () => {
+    initApp({ instant: at(2026, 8, 6, 600), utcOffsetMinutes: OFFSET, capability: SUPPORTED });
+    // 40/8 rhythm with a custom work block: no preset matches either.
+    dispatch({
+        tag: 'SettingsSaved',
+        raw: {
+            enabledFlag: false,
+            weekdays: ['Mon', 'Wed'],
+            workBlocks: [{ start: 600, end: 720 }],
+            focusMinutes: 40,
+            breakMinutes: 8
+        }
+    });
+    assert.equal(getModel().errors.length, 0);
+
+    const page = await loadSettingsPage();
+    page.restoreFromModel();
+    assert.equal(page.selectedBlock, -1, 'custom blocks must not map to the first preset');
+    assert.equal(page.selectedRhythm, -1, 'custom rhythm must not map to the first preset');
+    assert.deepEqual(page.originalBlocks, [{ start: 600, end: 720 }]);
+    assert.equal(page.originalFocusMinutes, 40);
+    assert.equal(page.originalBreakMinutes, 8);
+
+    // Save without touching anything: the custom values must survive exactly
+    // instead of being silently replaced by 25/5 defaults (P1-09).
+    page.onSave();
+    const model = getModel();
+    assert.equal(model.errors.length, 0);
+    const summary = model.settingsSummary;
+    assert.equal(summary.focusMinutes, 40);
+    assert.equal(summary.breakMinutes, 8);
+    assert.deepEqual(summary.rawBlocks, [{ start: 600, end: 720 }]);
+    assert.deepEqual(summary.weekdays, ['Mon', 'Wed']);
+});
+
+test('diagnostics: the page shows the newest eight entries first', async () => {
+    const diagnostics = createMemoryDiagnostics();
+    initApp({
+        instant: at(2026, 8, 6, 600),
+        utcOffsetMinutes: OFFSET,
+        capability: SUPPORTED,
+        diagnostics: diagnostics
+    });
+    // Append AFTER boot so the boot-time capability entries are older than
+    // the twelve seeded ones.
+    for (let index = 1; index <= 12; index += 1) {
+        diagnostics.append({ tag: 'E' + index, at: index });
+    }
+    const page = (await import('../pages/diagnostics/index.js')).default;
+    page.render();
+    assert.equal(page.entries.length, 8);
+    assert.equal(page.entries[0], 'E12', 'the newest entry must be first');
+    assert.equal(page.entries[7], 'E5', 'the oldest shown entry is the fifth-newest');
+    assert.equal(page.entries.includes('E4'), false, 'entries older than 8 must not appear');
+});
+
+test('break-active: every visible session may dispatch its own expiry event', async () => {
+    // Lite page instances may be reused: onShow must reset the dispatched
+    // flag, or the second break would never send BreakElapsed (P1-08).
+    const page = (await import('../pages/break-active/index.js')).default;
+    page.elapsedDispatched = true;
+    page.onShow();
+    assert.equal(page.elapsedDispatched, false,
+        'onShow must reset elapsedDispatched for the next visible session');
 });

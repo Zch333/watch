@@ -18,7 +18,12 @@ import {
     scheduleConfigured
 } from './events.js';
 import { selectNextGuidance } from './guidance.js';
-import { applyStrategyWindow, assertCanEnableReliable, buildRecurrenceRules, chooseSchedulingStrategy } from './policy.js';
+import {
+    applyStrategyWindow,
+    assertCanEnableReliable,
+    buildRecurrenceRules,
+    chooseSchedulingStrategy
+} from './policy.js';
 import {
     applySuppression,
     attachDueAt,
@@ -27,6 +32,7 @@ import {
     findIntentByKey,
     firstFutureIntent,
     generateRangePlan,
+    LATE_TOLERANCE_MS,
     noPause,
     noSkip,
     pauseThroughLocal
@@ -47,19 +53,29 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
  */
 const EARLY_TOLERANCE_MS = 5 * 60 * 1000;
 
-/**
- * Late-fire tolerance: a callback arriving more than this much AFTER its
- * scheduled instant is stale (the work/break slot has moved on; the prompt
- * would be noise). INFERRED default; calibrate with the GT6 probe.
- */
-const LATE_TOLERANCE_MS = 15 * 60 * 1000;
-
 function missingFact(facts, name) {
     const value = facts ? facts[name] : undefined;
     if (value === undefined || value === null) {
         return err(domainError(ERROR_CODES.INVALID_INSTANT, Object.freeze({ missing: name })));
     }
     return ok(value);
+}
+
+/**
+ * The calendar resolver fact: a pure (localDate, minuteOfDay) -> Instant
+ * mapping built by the shell from the CalendarPort. When absent (direct
+ * domain tests) the fallback resolves every local time with the single
+ * explicit utcOffsetMinutes fact — the production shell always passes the
+ * resolver so every future date across a DST boundary resolves individually.
+ */
+function resolveLocalFrom(facts) {
+    if (facts && typeof facts.resolveLocal === 'function') {
+        return facts.resolveLocal;
+    }
+    const offset = facts ? facts.utcOffsetMinutes : undefined;
+    return function (localDateValue, minuteOfDayValue) {
+        return localToInstant(localDateValue, minuteOfDayValue, offset);
+    };
 }
 
 function buildDesiredPlan(state, facts) {
@@ -72,20 +88,29 @@ function buildDesiredPlan(state, facts) {
     const pause = state.pause || noPause();
     const skip = state.skip || noSkip();
     const suppressed = applySuppression(rawPlan, pause, skip);
-    // Drop past intents for today (dates before today were never generated).
+    // Resolve every intent to an absolute due instant FIRST (per local time,
+    // through the calendar resolver), then drop intents whose due instant is
+    // already past: registering a past alarm could fire immediately. Late
+    // callbacks stay safe through the diffPlans cancel guard instead: a
+    // registered reminder inside its late-delivery window is never cancelled
+    // (review P1-03), so a 10:25 reminder is not lost to a 10:26 reconcile.
+    const attached = attachDueAt(suppressed, resolveLocalFrom(facts));
+    if (attached.tag === 'Err') {
+        return attached;
+    }
+    const nowMs = facts.now && facts.now.tag === 'Instant' &&
+        typeof facts.now.epochMilliseconds === 'number' && isFinite(facts.now.epochMilliseconds)
+        ? facts.now.epochMilliseconds
+        : null;
     const future = [];
-    for (let index = 0; index < suppressed.length; index += 1) {
-        const intent = suppressed[index];
-        const wall = facts.localWall;
-        const dateOrder = (intent.localDate.year - wall.localDate.year) ||
-            (intent.localDate.month - wall.localDate.month) ||
-            (intent.localDate.day - wall.localDate.day);
-        if (dateOrder > 0 || (dateOrder === 0 && intent.at.value > wall.minuteOfDay.value)) {
+    for (let index = 0; index < attached.value.length; index += 1) {
+        const intent = attached.value[index];
+        const dueMs = intent.dueAt.epochMilliseconds;
+        if (nowMs === null || dueMs > nowMs) {
             future.push(intent);
         }
     }
-    // Resolve each intent to an absolute due instant for fingerprint diffing.
-    return attachDueAt(future, facts.utcOffsetMinutes);
+    return ok(Object.freeze(future));
 }
 
 /**
@@ -101,7 +126,7 @@ function buildSuppressedPlan(state, facts) {
     const rawPlan = generateRangePlan(datesResult.value, state.settings);
     const pause = state.pause || noPause();
     const skip = state.skip || noSkip();
-    return attachDueAt(applySuppression(rawPlan, pause, skip), facts.utcOffsetMinutes);
+    return attachDueAt(applySuppression(rawPlan, pause, skip), resolveLocalFrom(facts));
 }
 
 function reconcileEffects(state, facts, extraEvents) {
@@ -117,7 +142,11 @@ function reconcileEffects(state, facts, extraEvents) {
         desired = applyStrategyWindow(desired, strategy, facts.now);
     }
     const registered = facts.registeredPlan || emptyPlan();
-    const diff = diffPlans(desired, registered);
+    const nowMs = facts.now && facts.now.tag === 'Instant' &&
+        typeof facts.now.epochMilliseconds === 'number' && isFinite(facts.now.epochMilliseconds)
+        ? facts.now.epochMilliseconds
+        : null;
+    const diff = diffPlans(desired, registered, nowMs);
     const events = (extraEvents || []).concat([planReconciled(diff)]);
     // Events must be evolvable in isolation; the shell persists the final
     // state after it settles lifecycle events against effect results.
@@ -128,6 +157,17 @@ function reconcileEffects(state, facts, extraEvents) {
     const rules = strategy && strategy.tag === 'RecurringCalendarStrategy'
         ? buildRecurrenceRules(desired)
         : undefined;
+    if (rules && typeof strategy.maxPendingCount === 'number' &&
+        rules.length > strategy.maxPendingCount) {
+        // The platform can hold at most maxPendingCount registrations; with
+        // recurring registration each weekly rule costs one slot. Folding
+        // first and checking rule count here keeps Mon–Fri slots intact
+        // instead of silently truncating concrete dates (review P1-06).
+        return err(domainError(ERROR_CODES.REMINDER_CAPACITY_EXCEEDED, Object.freeze({
+            ruleCount: rules.length,
+            capacity: strategy.maxPendingCount
+        })));
+    }
     const effects = [
         cancelReminders(diff.toCancel),
         registerReminders(diff.toRegister, rules)
@@ -208,13 +248,22 @@ export function decide(state, command, facts) {
         }
 
         case 'DisablePlan': {
-            if (state.planLifecycle.tag === 'Disabled') {
-                return ok(decision([], []));
-            }
             const registered = factsValue.registeredPlan || emptyPlan();
             const keys = registered.map(function (intent) {
                 return intent.key.value;
             });
+            if (state.planLifecycle.tag === 'Disabled') {
+                if (keys.length === 0) {
+                    // State and registry are both off: truly idempotent.
+                    return ok(decision([], []));
+                }
+                // State says Disabled but the system still holds reminders
+                // (a previous disable failed to cancel). No new domain event:
+                // just clean the orphans; a failed cancel stays retryable.
+                return decideSnapshot(state, [], [
+                    cancelReminders(keys)
+                ]);
+            }
             return decideSnapshot(state, [planDisabled()], [
                 cancelReminders(keys)
             ]);
@@ -242,7 +291,13 @@ export function decide(state, command, facts) {
                 }
                 until = command.instant;
             } else {
-                const endResult = endOfLocalDayInstant(localWallResult.value, utcOffsetResult.value);
+                // End of the local day, resolved individually through the
+                // calendar resolver (a DST switch at midnight would otherwise
+                // compute the wrong instant from the current offset).
+                const endResult = resolveLocalFrom(factsValue)(
+                    localWallResult.value.localDate,
+                    Object.freeze({ tag: 'MinuteOfDay', value: 1439 })
+                );
                 if (endResult.tag === 'Err') {
                     return endResult;
                 }
@@ -318,6 +373,18 @@ export function decide(state, command, facts) {
                 return localWallResult;
             }
 
+            // firedAt must be a fully valid Instant, exactly like the shell
+            // clock: a malformed-but-truthy firedAt would turn the early/late
+            // delta into NaN and could be persisted as a dueAt (P1-04).
+            const firedAt = command.firedAt || factsValue.now;
+            if (!firedAt ||
+                firedAt.tag !== 'Instant' ||
+                typeof firedAt.epochMilliseconds !== 'number' ||
+                !isFinite(firedAt.epochMilliseconds) ||
+                Math.floor(firedAt.epochMilliseconds) !== firedAt.epochMilliseconds) {
+                return err(domainError(ERROR_CODES.INVALID_INSTANT, command.firedAt));
+            }
+
             // Stale callbacks after disable/block must not pop a break prompt.
             if (state.planLifecycle.tag !== 'Enabled' &&
                 state.planLifecycle.tag !== 'Paused' &&
@@ -326,7 +393,7 @@ export function decide(state, command, facts) {
                     emitDiagnostic({
                         tag: 'ReminderIgnoredWhileDisabled',
                         reminderKey: keyValue,
-                        at: command.firedAt || factsValue.now
+                        at: firedAt
                     })
                 ]);
             }
@@ -340,7 +407,7 @@ export function decide(state, command, facts) {
                         tag: 'DuplicateReminderIgnored',
                         reminderKey: keyValue,
                         sessionTag: state.breakSession.tag,
-                        at: command.firedAt || factsValue.now
+                        at: firedAt
                     })
                 ]);
             }
@@ -355,7 +422,7 @@ export function decide(state, command, facts) {
                     emitDiagnostic({
                         tag: 'StaleReminderIgnored',
                         reminderKey: keyValue,
-                        at: command.firedAt || factsValue.now
+                        at: firedAt
                     })
                 ]);
             }
@@ -363,8 +430,7 @@ export function decide(state, command, facts) {
             // absolute instant means the clock/timezone moved or a duplicate
             // misfired; surface it instead of silently accepting it.
             if (intent.dueAt && intent.dueAt.tag === 'Instant') {
-                const firedInstant = command.firedAt || factsValue.now;
-                const delta = firedInstant.epochMilliseconds - intent.dueAt.epochMilliseconds;
+                const delta = firedAt.epochMilliseconds - intent.dueAt.epochMilliseconds;
                 if (delta < -EARLY_TOLERANCE_MS) {
                     return err(domainError(ERROR_CODES.REMINDER_FIRED_TOO_EARLY, Object.freeze({
                         key: keyValue,
@@ -380,8 +446,7 @@ export function decide(state, command, facts) {
                     })));
                 }
             }
-            const dueAt = command.firedAt || factsValue.now;
-            return decideSnapshot(state, [breakBecameDue(intent.key, dueAt)], [
+            return decideSnapshot(state, [breakBecameDue(intent.key, firedAt)], [
                 vibrate('BreakStart'),
                 navigate('break-due')
             ]);
@@ -392,6 +457,23 @@ export function decide(state, command, facts) {
                 return err(domainError(ERROR_CODES.INVALID_STATE_TRANSITION, Object.freeze({
                     from: state.breakSession.tag,
                     command: command.tag
+                })));
+            }
+            // The prompt belongs to exactly one reminder. A stale page, a
+            // double tap or a delayed UI event may carry an old key: starting
+            // the wrong reminder's session would mislabel the break (P1-05).
+            const commandKey = command.reminderKey && command.reminderKey.value
+                ? command.reminderKey.value
+                : command.reminderKey;
+            const expectedKey = state.breakSession.reminderKey &&
+                state.breakSession.reminderKey.value
+                ? state.breakSession.reminderKey.value
+                : state.breakSession.reminderKey;
+            if (commandKey !== expectedKey) {
+                return err(domainError(ERROR_CODES.INVALID_STATE_TRANSITION, Object.freeze({
+                    reason: 'REMINDER_KEY_MISMATCH',
+                    expected: expectedKey,
+                    actual: commandKey
                 })));
             }
             // Acknowledged start: the reminder alert already vibrated when the
@@ -462,10 +544,25 @@ export function decide(state, command, facts) {
         }
 
         case 'ReconcilePlan': {
-            if (state.planLifecycle.tag !== 'Enabled' &&
-                state.planLifecycle.tag !== 'Paused' &&
-                state.planLifecycle.tag !== 'Enabling') {
-                return ok(decision([], []));
+            const active =
+                state.planLifecycle.tag === 'Enabled' ||
+                state.planLifecycle.tag === 'Paused' ||
+                state.planLifecycle.tag === 'Enabling';
+
+            if (!active) {
+                // Disabled or Blocked: the system must not hold any Move25
+                // reminders. Cancel leftovers without touching domain state,
+                // so a previously failed disable can finally converge.
+                const registered = factsValue.registeredPlan || emptyPlan();
+                const orphanKeys = registered.map(function (intent) {
+                    return intent.key.value;
+                });
+                if (orphanKeys.length === 0) {
+                    return ok(decision([], []));
+                }
+                return decideSnapshot(state, [], [
+                    cancelReminders(orphanKeys)
+                ]);
             }
             return reconcileEffects(state, factsValue, []);
         }
@@ -521,13 +618,9 @@ function startActiveBreak(state, factsValue, reminderKey, acknowledged) {
 }
 
 /**
- * End-of-day instant (23:59 local) for "pause today".
+ * Public projection helper used by the MVU layer: the desired (strictly
+ * future) plan for display purposes.
  */
-export function endOfLocalDayInstant(localWall, utcOffsetMinutes) {
-    const endMinute = Object.freeze({ tag: 'MinuteOfDay', value: 1439 });
-    return localToInstant(localWall.localDate, endMinute, utcOffsetMinutes);
-}
-
 export function buildDesiredPlanForState(state, facts) {
     return buildDesiredPlan(state, facts);
 }

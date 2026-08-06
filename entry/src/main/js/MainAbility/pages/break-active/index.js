@@ -17,6 +17,10 @@ export default {
     elapsedDispatched: false,
 
     onShow() {
+        // Lite page instances may be reused: every new visible session must
+        // be allowed to dispatch its own expiry event. Without the reset, a
+        // second break would never send BreakElapsed (P1-08).
+        this.elapsedDispatched = false;
         this.render();
         this.startVisibleTicker();
     },
@@ -47,11 +51,22 @@ export default {
         this.timerId = setInterval(function () {
             const model = refresh();
             self.remainingText = formatSeconds(model.remainingSeconds);
+            if (model.breakStatus !== 'Active') {
+                // Another page or the startup reduction already settled the
+                // session; a stale ticker must stop instead of dispatching.
+                self.stopVisibleTicker();
+                return;
+            }
             if (model.remainingSeconds === 0 && !self.elapsedDispatched) {
                 self.elapsedDispatched = true;
-                dispatch({ tag: 'BreakElapsed' });
+                const nextModel = dispatch({ tag: 'BreakElapsed' });
                 self.stopVisibleTicker();
-                navigateTo('home');
+                // Only leave the page when the command actually succeeded:
+                // a failed save/reconcile keeps the user on screen with the
+                // error visible instead of silently pretending it worked.
+                if ((nextModel.errors || []).length === 0) {
+                    navigateTo('home');
+                }
             }
         }, 1000);
     },

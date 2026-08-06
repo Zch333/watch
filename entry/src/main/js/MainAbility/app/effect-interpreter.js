@@ -16,7 +16,15 @@ import { err, ok } from '../domain/result.js';
 export function interpretEffect(effect, ports) {
     switch (effect.tag) {
         case 'RegisterReminders':
-            return ports.reminders.register(effect.intents);
+            // The recurrence rules must reach the adapter: they are the
+            // artifact a RecurringCalendar adapter consumes (one registration
+            // per weekly slot instead of one per concrete date). Dropping
+            // them here would silently turn recurring registration into a
+            // one-shot list of concrete intents.
+            return ports.reminders.register(Object.freeze({
+                intents: effect.intents,
+                recurrenceRules: effect.recurrenceRules || Object.freeze([])
+            }));
         case 'CancelReminders':
             return ports.reminders.cancel(effect.keys);
         case 'Vibrate':

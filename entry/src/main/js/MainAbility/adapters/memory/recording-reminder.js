@@ -14,6 +14,8 @@ export function createRecordingReminder(options) {
     const failKeys = (opts.failKeys || []).slice();
     const registry = new Map();
     let counter = 0;
+    let lastRecurrenceRules = [];
+    let failCancel = !!opts.failCancel;
 
     return {
         probeCapabilities() {
@@ -32,7 +34,24 @@ export function createRecordingReminder(options) {
             });
             return ok(Object.freeze(list));
         },
-        register(intents) {
+        /**
+         * register(request) per ReminderSchedulerPort/v1.
+         * Accepts { intents, recurrenceRules }; a bare array is accepted for
+         * legacy callers and treated as { intents, recurrenceRules: [] }.
+         */
+        register(request) {
+            const input = Array.isArray(request)
+                ? { intents: request, recurrenceRules: [] }
+                : request;
+            const intents = input && Array.isArray(input.intents)
+                ? input.intents
+                : [];
+            const recurrenceRules =
+                input && Array.isArray(input.recurrenceRules)
+                    ? input.recurrenceRules
+                    : [];
+            // Record the rules so contract tests can assert they arrive.
+            lastRecurrenceRules = recurrenceRules.slice();
             const registered = [];
             const failed = [];
             for (let index = 0; index < intents.length; index += 1) {
@@ -70,6 +89,9 @@ export function createRecordingReminder(options) {
             return ok(report);
         },
         cancel(keys) {
+            if (failCancel) {
+                return err(reminderError(REMINDER_ERROR_CODES.PERMISSION_DENIED, null));
+            }
             const cancelled = [];
             const missing = [];
             for (let index = 0; index < keys.length; index += 1) {
@@ -88,6 +110,12 @@ export function createRecordingReminder(options) {
         },
         _clearFailKeys() {
             failKeys.length = 0;
+        },
+        _setFailCancel(value) {
+            failCancel = !!value;
+        },
+        _lastRecurrenceRules() {
+            return lastRecurrenceRules.slice();
         },
         _mappings() {
             const list = [];

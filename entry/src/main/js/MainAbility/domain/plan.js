@@ -3,6 +3,17 @@ import { semanticKey } from './values.js';
 import { err, ok } from './result.js';
 import { domainError, ERROR_CODES } from './errors.js';
 
+/**
+ * Late-fire tolerance: a callback arriving more than this much AFTER its
+ * scheduled absolute instant is stale (the work/break slot has moved on;
+ * the prompt would be noise). INFERRED default; calibrate with the GT6 probe.
+ *
+ * The same window bounds reconciliation (diffPlans): a registered reminder
+ * whose callback has not yet been confirmed may legitimately arrive up to
+ * LATE_TOLERANCE_MS late, so it must not be cancelled during that window.
+ */
+export const LATE_TOLERANCE_MS = 15 * 60 * 1000;
+
 function pad(value, length) {
     let text = String(value);
     while (text.length < length) {
@@ -228,14 +239,30 @@ export function intentFingerprint(intent) {
 }
 
 /**
- * Resolve each intent's local wall minute to an absolute Instant using an
- * explicit UTC offset. Pure: offset is a fact, never read from the platform.
+ * Resolve each intent's local wall minute to an absolute Instant.
+ *
+ * `resolverOrOffset` is either:
+ *  - a function (localDate, minuteOfDay) -> Result<CalendarError, Instant>,
+ *    supplied by the shell as a fact. The shell builds it from the Calendar
+ *    port so EVERY future local time is resolved individually — a single
+ *    current UTC offset is wrong across a DST boundary. The domain never
+ *    calls the platform itself; the resolver is a pure value-to-value
+ *    mapping injected as a parameter.
+ *  - a fixed utcOffsetMinutes number (pure Gregorian algebra), used by direct
+ *    domain tests and as a fallback when no resolver fact is present.
+ *
+ * Pure: the resolver/offset is a fact, never read from the platform.
  */
-export function attachDueAt(plan, utcOffsetMinutes) {
+export function attachDueAt(plan, resolverOrOffset) {
+    const resolve = typeof resolverOrOffset === 'function'
+        ? resolverOrOffset
+        : function (date, minute) {
+            return localToInstant(date, minute, resolverOrOffset);
+        };
     const out = [];
     for (let index = 0; index < plan.length; index += 1) {
         const intent = plan[index];
-        const resolved = localToInstant(intent.localDate, intent.at, utcOffsetMinutes);
+        const resolved = resolve(intent.localDate, intent.at);
         if (resolved.tag === 'Err') {
             return resolved;
         }
@@ -244,14 +271,40 @@ export function attachDueAt(plan, utcOffsetMinutes) {
     return ok(Object.freeze(out));
 }
 
-export function diffPlans(desiredPlan, registeredPlan) {
+/**
+ * Diff the desired plan against the currently registered plan.
+ *
+ * `nowMs` (optional, milliseconds epoch): when supplied, a registered intent
+ * that is NOT in the desired plan is still NOT cancelled while it is ALREADY
+ * due but still inside its late-delivery window (now - LATE_TOLERANCE_MS <=
+ * dueAt <= now): the system may still deliver the legal late callback
+ * (review P1-03). Future-dated leftovers — a skipped, paused or reconfigured
+ * reminder whose due time has not yet arrived — are cancelled immediately:
+ * they have no pending callback to protect. Without `nowMs` (direct domain
+ * tests) the diff is strict.
+ */
+export function diffPlans(desiredPlan, registeredPlan, nowMs) {
     const desired = combinePlans([], desiredPlan);
     const registered = combinePlans([], registeredPlan);
     const toRegister = desired.filter(function (intent) {
         return !containsFingerprint(registered, intentFingerprint(intent));
     });
     const toCancel = registered.filter(function (intent) {
-        return !containsFingerprint(desired, intentFingerprint(intent));
+        if (containsFingerprint(desired, intentFingerprint(intent))) {
+            return false;
+        }
+        if (typeof nowMs === 'number' && isFinite(nowMs)) {
+            const dueAt = intent && intent.dueAt && intent.dueAt.tag === 'Instant'
+                ? intent.dueAt.epochMilliseconds
+                : null;
+            if (dueAt !== null && dueAt <= nowMs && nowMs <= dueAt + LATE_TOLERANCE_MS) {
+                // Already due and still inside the late-delivery window:
+                // keep it registered so the pending callback is not lost to
+                // a reconcile race. Future-dated leftovers are not guarded.
+                return false;
+            }
+        }
+        return true;
     }).map(function (intent) {
         return intent.key.value;
     });

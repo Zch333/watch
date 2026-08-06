@@ -432,25 +432,32 @@ test('example: a timezone change re-registers reminders at the new absolute time
     const key = atPlus8.value[0].key.value;
     const duePlus8 = atPlus8.value[0].dueAt.epochMilliseconds;
 
-    // Same wall clock, but the device moved to UTC+9: the local key is
-    // unchanged yet the absolute instant moved one hour earlier.
+    // The device moves from UTC+8 to UTC+9 at the SAME instant (02:00 UTC),
+    // so the wall clock reads 11:00. Facts stay consistent: localWall is
+    // derived from now through the calendar, never mixed offsets.
     const now = factsAt(2026, 8, 6, 600).now;
     const atPlus9 = buildDesiredPlanForState(state, {
         now: now,
-        localWall: { localDate: date(2026, 8, 6), minuteOfDay: minute(600) },
+        localWall: { localDate: date(2026, 8, 6), minuteOfDay: minute(660) },
         utcOffsetMinutes: 540,
         registeredPlan: [],
         horizonDays: 3
     });
     assert.equal(atPlus9.tag, 'Ok');
-    assert.equal(atPlus9.value[0].key.value, key);
-    assert.equal(atPlus9.value[0].dueAt.epochMilliseconds, duePlus8 - 60 * 60000);
+    // The first future reminder at UTC+9 is 11:25 local, which occupies the
+    // same absolute instant the old 10:25 reminder had at UTC+8.
+    assert.equal(atPlus9.value[0].key.value, 'break-start:25-5:2026-08-06:685');
+    assert.equal(atPlus9.value[0].dueAt.epochMilliseconds, duePlus8);
+    // The old local key no longer exists in the UTC+9 plan (its moment passed).
+    assert.equal(atPlus9.value.some(function (intent) {
+        return intent.key.value === key;
+    }), false);
 
-    // The diff must reschedule, not treat the same key as unchanged.
+    // The diff must reschedule: cancel the old key, register the new one.
     const diff = diffPlans(atPlus9.value, atPlus8.value);
     assert.equal(diff.toCancel.indexOf(key) >= 0, true);
     assert.equal(diff.toRegister.some(function (intent) {
-        return intent.key.value === key;
+        return intent.key.value === 'break-start:25-5:2026-08-06:685';
     }), true);
     assert.equal(diff.unchanged.length, 0);
 });
@@ -483,6 +490,106 @@ test('example: a callback beyond the late tolerance is stale and rejected', () =
     assert.equal(result.tag, 'Err');
     assert.equal(result.error.code, 'STALE_REMINDER_CALLBACK');
     assert.equal(result.error.details.deltaMilliseconds, 20 * 60000);
+});
+
+test('example: a malformed firedAt is rejected instead of poisoning the delta', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    // truthy but structurally broken firedAt (e.g. a raw platform payload):
+    // NaN deltas would silently disable the early/late guards.
+    const result = decide(state, {
+        tag: 'HandleReminderFired',
+        reminderKey: 'break-start:25-5:2026-08-06:625',
+        firedAt: { tag: 'Instant', epochMilliseconds: Number.NaN }
+    }, fired);
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'INVALID_INSTANT');
+
+    const float = decide(state, {
+        tag: 'HandleReminderFired',
+        reminderKey: 'break-start:25-5:2026-08-06:625',
+        firedAt: { tag: 'Instant', epochMilliseconds: 1.5 }
+    }, fired);
+    assert.equal(float.tag, 'Err');
+    assert.equal(float.error.code, 'INVALID_INSTANT');
+});
+
+test('example: start break with a stale reminder key is rejected', () => {
+    let state = enabledStateAt(2026, 8, 6, 600);
+    const fired = factsAt(2026, 8, 6, 625);
+    const due = decide(state, handleReminderFired('break-start:25-5:2026-08-06:625', fired.now), fired);
+    state = evolveOk(state, due.value.events);
+    assert.equal(state.breakSession.tag, 'Due');
+
+    // A delayed UI event from an older prompt carries a different key.
+    const stale = decide(state, startBreak('break-start:25-5:2026-08-06:655'), factsAt(2026, 8, 6, 625));
+    assert.equal(stale.tag, 'Err');
+    assert.equal(stale.error.code, 'INVALID_STATE_TRANSITION');
+    assert.equal(stale.error.details.reason, 'REMINDER_KEY_MISMATCH');
+    assert.equal(stale.error.details.expected, 'break-start:25-5:2026-08-06:625');
+
+    // The matching key still starts the break.
+    const ok = decide(state, startBreak('break-start:25-5:2026-08-06:625'), factsAt(2026, 8, 6, 625));
+    assert.equal(ok.tag, 'Ok');
+});
+
+test('example: recurring strategy fails explicitly when rule count exceeds capacity', () => {
+    // maxPendingCount 2 with a Mon–Fri schedule folds into 15 weekly rules
+    // (6 morning slots + 9 afternoon slots): truncating the concrete plan to
+    // 2 would silently lose weekdays, so the reconcile must fail explicitly
+    // instead (review P1-06).
+    let state = initialDomainState();
+    const small = capabilitySupported({
+        maxPendingCount: 2,
+        supportsCalendar: true,
+        supportsRecurring: true
+    });
+    state = evolveOk(state, [capabilityObserved(small)]);
+    const result = decide(state, enablePlan(), factsAt(2026, 8, 6, 600));
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'REMINDER_CAPACITY_EXCEEDED');
+    assert.equal(result.error.details.ruleCount, 15);
+    assert.equal(result.error.details.capacity, 2);
+});
+
+test('example: a per-date resolver resolves each intent across a DST boundary', () => {
+    // Mon 2026-10-19 -> Tue 2026-10-20 (both weekdays): the offset switches
+    // at the boundary, exactly like a DST transition.
+    const state = enabledStateAt(2026, 10, 19, 600);
+    const SWITCH_DATE = { year: 2026, month: 10, day: 20 };
+    const facts = factsAt(2026, 10, 19, 600, {
+        resolveLocal: function (localDateValue, minuteOfDayValue) {
+            const after = localDateValue.year > SWITCH_DATE.year ||
+                (localDateValue.year === SWITCH_DATE.year &&
+                    (localDateValue.month > SWITCH_DATE.month ||
+                        (localDateValue.month === SWITCH_DATE.month &&
+                            localDateValue.day >= SWITCH_DATE.day)));
+            return localToInstant(localDateValue, minuteOfDayValue, after ? 540 : 480);
+        }
+    });
+    const desired = buildDesiredPlanForState(state, facts);
+    assert.equal(desired.tag, 'Ok');
+
+    const before = desired.value.find(function (intent) {
+        return intent.key.value === 'break-start:25-5:2026-10-19:625';
+    });
+    const after = desired.value.find(function (intent) {
+        return intent.key.value === 'break-start:25-5:2026-10-20:625';
+    });
+    assert.equal(!!before, true);
+    assert.equal(!!after, true);
+    // Each local time resolves individually: before the switch at UTC+8,
+    // after it at UTC+9.
+    assert.equal(before.dueAt.epochMilliseconds,
+        localToInstant(date(2026, 10, 19), minute(625), 480).value.epochMilliseconds);
+    assert.equal(after.dueAt.epochMilliseconds,
+        localToInstant(date(2026, 10, 20), minute(625), 540).value.epochMilliseconds);
+    // The same local minute across the boundary: one calendar day apart in
+    // wall time, but the absolute spread is 23h — one hour less than 24h
+    // because the DST switch shifted the offset. A single current offset
+    // would have produced a 24h spread (review P1-01).
+    assert.equal(after.dueAt.epochMilliseconds - before.dueAt.epochMilliseconds,
+        23 * 60 * 60000);
 });
 
 test('example: a recurring-capable registration carries weekly recurrence rules', () => {

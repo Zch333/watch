@@ -181,3 +181,90 @@ test('example: invalid nested values fail strict decode', () => {
     assert.equal(migrated.error.code, 'INVALID_SNAPSHOT');
     assert.equal(migrated.error.details.reason, 'invalid_paused_until');
 });
+
+test('example: a spoofed ScheduleSettings tag never bypasses validation', () => {
+    // The object declares itself a valid ScheduleSettings, but the nested
+    // weekday is not a real weekday: strict decode must rebuild the settings
+    // through the smart constructor instead of trusting the tag (P1-02).
+    const raw = {
+        schemaVersion: 1,
+        revision: 0,
+        settings: {
+            tag: 'ScheduleSettings',
+            enabledFlag: false,
+            weekdays: [{ tag: 'Weekday', value: 'InvalidDay' }],
+            workBlocks: [
+                { tag: 'WorkBlock', start: { tag: 'MinuteOfDay', value: 540 }, end: { tag: 'MinuteOfDay', value: 720 } }
+            ],
+            rhythm: {
+                tag: 'Rhythm',
+                focusMinutes: { tag: 'PositiveMinutes', value: 25 },
+                breakMinutes: { tag: 'PositiveMinutes', value: 5 }
+            },
+            version: { tag: 'SchemaVersion', value: 1 }
+        }
+    };
+    const rehydrated = rehydrateFromRaw(raw);
+    assert.equal(rehydrated.tag, 'Err');
+    assert.equal(rehydrated.error.code, 'INVALID_WEEKDAY');
+});
+
+test('example: non-integer revision and guidanceIndex fail strict decode', () => {
+    const base = JSON.parse(JSON.stringify(createSnapshot(initialDomainState())));
+
+    const floatRevision = Object.assign({}, base, { revision: 1.5 });
+    const badRevision = migrateSnapshot(floatRevision);
+    assert.equal(badRevision.tag, 'Err');
+    assert.equal(badRevision.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(badRevision.error.details.reason, 'invalid_revision');
+
+    const negativeGuidance = Object.assign({}, base, { guidanceIndex: -1 });
+    const badGuidance = migrateSnapshot(negativeGuidance);
+    assert.equal(badGuidance.tag, 'Err');
+    assert.equal(badGuidance.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(badGuidance.error.details.reason, 'invalid_guidance_index');
+});
+
+test('example: an Active session whose endsAt is not after startedAt fails decode', () => {
+    const base = JSON.parse(JSON.stringify(createSnapshot(initialDomainState())));
+    const raw = Object.assign({}, base, {
+        breakSession: {
+            tag: 'Active',
+            sessionId: 's1',
+            startedAt: { tag: 'Instant', epochMilliseconds: 1000 },
+            endsAt: { tag: 'Instant', epochMilliseconds: 1000 },
+            guidanceId: 'stand-walk-eyes'
+        }
+    });
+    const migrated = migrateSnapshot(raw);
+    assert.equal(migrated.tag, 'Err');
+    assert.equal(migrated.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(migrated.error.details.reason, 'invalid_break_active_interval');
+
+    const missingSessionId = Object.assign({}, base, {
+        breakSession: {
+            tag: 'Active',
+            startedAt: { tag: 'Instant', epochMilliseconds: 1000 },
+            endsAt: { tag: 'Instant', epochMilliseconds: 2000 },
+            guidanceId: 'stand-walk-eyes'
+        }
+    });
+    const noId = migrateSnapshot(missingSessionId);
+    assert.equal(noId.tag, 'Err');
+    assert.equal(noId.error.details.reason, 'invalid_break_active_fields');
+});
+
+test('example: a spoofed PauseThroughLocal with an invalid date fails decode', () => {
+    const base = JSON.parse(JSON.stringify(createSnapshot(initialDomainState())));
+    const raw = Object.assign({}, base, {
+        pause: {
+            tag: 'PauseThroughLocal',
+            localDate: { tag: 'LocalDate', year: 2026, month: 13, day: 1 },
+            minuteOfDay: { tag: 'MinuteOfDay', value: 720 }
+        }
+    });
+    const migrated = migrateSnapshot(raw);
+    assert.equal(migrated.tag, 'Err');
+    assert.equal(migrated.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(migrated.error.details.reason, 'invalid_pause_through_local');
+});

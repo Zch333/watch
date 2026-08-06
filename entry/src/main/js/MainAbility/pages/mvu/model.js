@@ -27,6 +27,7 @@ export function initialUiModel() {
         settingsSummary: Object.freeze({
             weekdays: [],
             blocks: [],
+            rawBlocks: [],
             focusMinutes: 25,
             breakMinutes: 5
         }),
@@ -55,7 +56,7 @@ function capabilityBannerFor(capability) {
     }
 }
 
-function guidanceFor(session) {
+function guidanceFor(session, guidanceIndex) {
     if (!session) {
         return null;
     }
@@ -69,7 +70,10 @@ function guidanceFor(session) {
         return null;
     }
     if (session.tag === 'Due') {
-        const item = guidanceAt(0);
+        // The Due prompt must show exactly what starting the break will run:
+        // startActiveBreak selects guidanceAt(state.guidanceIndex). Projecting
+        // guidanceAt(0) here would show one suggestion and run another.
+        const item = guidanceAt(guidanceIndex);
         return Object.freeze({ id: item.id, actions: item.actions });
     }
     return null;
@@ -78,6 +82,7 @@ function guidanceFor(session) {
 function settingsSummaryFor(settings) {
     const weekdays = [];
     const blocks = [];
+    const rawBlocks = [];
     if (settings) {
         const names = settings.weekdays || [];
         for (let index = 0; index < names.length; index += 1) {
@@ -87,11 +92,16 @@ function settingsSummaryFor(settings) {
         for (let index = 0; index < list.length; index += 1) {
             blocks.push(formatMinute(list[index].start.value) + '–' +
                 formatMinute(list[index].end.value));
+            rawBlocks.push(Object.freeze({
+                start: list[index].start.value,
+                end: list[index].end.value
+            }));
         }
     }
     return Object.freeze({
         weekdays: Object.freeze(weekdays),
         blocks: Object.freeze(blocks),
+        rawBlocks: Object.freeze(rawBlocks),
         focusMinutes: settings && settings.rhythm ? settings.rhythm.focusMinutes.value : 25,
         breakMinutes: settings && settings.rhythm ? settings.rhythm.breakMinutes.value : 5
     });
@@ -140,7 +150,7 @@ export function projectModel(state, facts, errors) {
         remainingSeconds: remainingSeconds,
         endsAtEpochMs: endsAtEpochMs,
         capabilityBanner: capabilityBannerFor(state.capability),
-        currentGuidance: guidanceFor(session),
+        currentGuidance: guidanceFor(session, state.guidanceIndex),
         breakStatus: session ? session.tag : 'NoBreak',
         breakOutcome: breakOutcome,
         dueReminderKey: dueReminderKey,

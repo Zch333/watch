@@ -1,5 +1,5 @@
 import { createHostApp } from '../app/composition-root.js';
-import { observeCapability } from '../domain/commands.js';
+import { observeCapability, reconcilePlan } from '../domain/commands.js';
 import { createSnapshot } from '../domain/snapshot.js';
 import { reduceTemporalState } from '../domain/evolve.js';
 import { REMINDER_NAMESPACE } from '../app/command-handler.js';
@@ -33,6 +33,11 @@ function bootApp(instance) {
         return null;
     }
     const booted = bootResult.state;
+    // The booted state is the committed (persisted) state.
+    state = booted;
+    // Errors recorded during THIS boot only: a fresh boot must not carry
+    // failures from an earlier boot over into the new projection.
+    const bootErrors = [];
 
     // Observe capability through the reminder port (Unknown until a probe confirms).
     const probe = instance.probeCapabilities();
@@ -40,13 +45,41 @@ function bootApp(instance) {
         const result = instance.handleCommand(booted, observeCapability(probe.value));
         if (result.tag === 'Ok') {
             state = result.state;
-            if (result.facts) {
-                model = projectModel(state, result.facts);
-            }
-            return state;
+        } else {
+            bootErrors.push({
+                text: '能力状态保存失败',
+                code: result.error && result.error.code
+            });
         }
+    } else {
+        // Probe failure must be visible, but it must not block reading the
+        // persisted state or reconciling the registry.
+        bootErrors.push({
+            text: '提醒能力探测失败',
+            code: probe.error && probe.error.code
+        });
     }
-    state = booted;
+
+    // Startup reconciliation: every launch converges the system reminder
+    // registry with the persisted plan and the domain's desired plan.
+    // This is what makes restarts safe:
+    //   1. orphan reminders (left by a failed disable) are cleaned up;
+    //   2. missing registrations (Enabling) are re-registered and promoted;
+    //   3. timezone/time changes reschedule existing reminders;
+    //   4. expired sessions and pauses from the snapshot are reduced.
+    const reconciled = instance.handleCommand(state, reconcilePlan());
+    if (reconciled.tag === 'Ok') {
+        state = reconciled.state;
+        model = projectModel(state, reconciled.facts, bootErrors);
+    } else {
+        bootErrors.push({
+            text: '启动对账失败',
+            code: reconciled.error && reconciled.error.code
+        });
+        model = Object.freeze(Object.assign({}, initialUiModel(), {
+            errors: Object.freeze(bootErrors)
+        }));
+    }
     return state;
 }
 
@@ -146,14 +179,25 @@ export function refresh() {
     const baseRevision = state.revision;
     const reduced = reduceTemporalState(state, clockResult.value);
     if (reduced.tag === 'Ok' && reduced.value !== state) {
-        state = reduced.value;
-        const persist = app.ports.store.saveSnapshot(baseRevision, createSnapshot(state));
-        if (persist.tag === 'Err') {
+        const candidateState = reduced.value;
+        const persist = app.ports.store.saveSnapshot(baseRevision, createSnapshot(candidateState));
+        if (persist.tag === 'Ok') {
+            // Only a persisted reduction may become the global state: a
+            // failed save must not leave an uncommitted revision in memory
+            // (that would make every later save collide forever).
+            state = candidateState;
+        } else {
             app.ports.diagnostics.append(Object.freeze({
                 tag: 'EffectFailed',
                 effect: 'PersistSnapshot',
                 code: persist.error.code,
                 at: clockResult.value
+            }));
+            model = Object.freeze(Object.assign({}, model, {
+                errors: Object.freeze(model.errors.concat([{
+                    text: '状态保存失败，请重新打开应用',
+                    code: persist.error.code
+                }]))
             }));
         }
     }

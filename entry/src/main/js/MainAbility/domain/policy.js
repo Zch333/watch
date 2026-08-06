@@ -69,8 +69,11 @@ export function chooseSchedulingStrategy(capability, desiredPlan) {
  *    absolute dueAt regardless of input order.
  *  - RollingWindowStrategy: keep only intents whose absolute dueAt falls inside
  *    the next `days` days (from `now`), capped at the platform capacity.
- *  - RecurringCalendarStrategy: the full horizon plan passes through (the
- *    adapter repeats it weekly); capacity applies defensively.
+ *  - RecurringCalendarStrategy: the full horizon plan passes through; the
+ *    adapter repeats it weekly via recurrence rules, so concrete-date
+ *    truncation here would silently drop weekdays (e.g. slice(0, 2) keeps
+ *    only Mon–Wed of a Mon–Fri plan). Rule-count capacity is checked by the
+ *    caller AFTER buildRecurrenceRules folds the plan.
  *
  * `now` is the explicit current instant fact; the domain never reads the clock.
  */
@@ -81,6 +84,19 @@ function epochMilliseconds(value) {
         : null;
 }
 
+/**
+ * An intent is "past" when its absolute due time is strictly before now.
+ * The late-delivery cancel guard lives in diffPlans (plan.js), where the
+ * registered reminder itself is visible; the desired plan here only ever
+ * contains strictly future intents.
+ */
+function isPast(dueMs, nowMs) {
+    if (dueMs === null || nowMs === null) {
+        return false;
+    }
+    return dueMs < nowMs;
+}
+
 function nearestFutureIntent(plan, nowMs) {
     let nearest = undefined;
     for (let index = 0; index < plan.length; index += 1) {
@@ -88,7 +104,7 @@ function nearestFutureIntent(plan, nowMs) {
         if (dueMs === null) {
             continue;
         }
-        if (nowMs !== null && dueMs < nowMs) {
+        if (isPast(dueMs, nowMs)) {
             continue;
         }
         if (nearest === undefined || dueMs < epochMilliseconds(nearest.dueAt)) {
@@ -119,7 +135,7 @@ export function applyStrategyWindow(desiredPlan, strategy, now) {
             if (dueMs === null) {
                 return false;
             }
-            if (nowMs !== null && dueMs < nowMs) {
+            if (isPast(dueMs, nowMs)) {
                 return false;
             }
             if (horizonMs !== null && dueMs > horizonMs) {
@@ -130,9 +146,11 @@ export function applyStrategyWindow(desiredPlan, strategy, now) {
         return Object.freeze(windowed.slice(0, capacity));
     }
 
-    // RecurringCalendarStrategy and any future strategy: pass the plan through.
-    const capacity = typeof strategy.maxPendingCount === 'number' ? strategy.maxPendingCount : 30;
-    return Object.freeze(plan.slice(0, capacity));
+    // RecurringCalendarStrategy and any future strategy: pass the plan through
+    // UNTRUNCATED. Concrete-date truncation before rule folding would drop
+    // whole weekdays; the rule-count capacity check happens in the caller
+    // after buildRecurrenceRules (see reconcileEffects in decide.js).
+    return Object.freeze(plan.slice());
 }
 
 /**

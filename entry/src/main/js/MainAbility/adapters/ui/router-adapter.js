@@ -1,13 +1,5 @@
-/**
- * Router adapter: Lite JS page navigation through the platform router.
- *
- * Evidence: INFERRED — @system.router is the standard Lite JS navigation API
- * (see Lite SDK reference); must be re-confirmed in the DevEco simulator.
- * The domain only requests routes as Navigate effects; this adapter translates
- * route names to page paths.
- */
 import router from '@system.router';
-import { ok } from '../../domain/result.js';
+import { err, ok } from '../../domain/result.js';
 
 const ROUTE_TO_URI = {
     'home': 'pages/home/index',
@@ -28,8 +20,27 @@ export function createRouterAdapter() {
                     error: Object.freeze({ tag: 'NavigationError', code: 'UNKNOWN_ROUTE', details: route })
                 });
             }
-            router.replace({ uri: uri });
-            return ok(Object.freeze({ tag: 'Unit' }));
+            // Exception boundary: @system.router.replace is synchronous, but a
+            // platform failure must never throw through the effect interpreter.
+            // A failed navigation is reported as Err; the caller decides
+            // whether the user needs to see it.
+            try {
+                router.replace({ uri: uri });
+                return ok(Object.freeze({ tag: 'Unit' }));
+            } catch (error) {
+                return Object.freeze({
+                    tag: 'Err',
+                    error: Object.freeze({
+                        tag: 'NavigationError',
+                        code: 'NAVIGATION_FAILED',
+                        details: {
+                            route: route,
+                            uri: uri,
+                            message: error && error.message ? String(error.message) : String(error)
+                        }
+                    })
+                });
+            }
         }
     };
 }

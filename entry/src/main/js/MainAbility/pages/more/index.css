@@ -24,3 +24,9 @@
   font-size: 22px;
   color: #ffffff;
 }
+.error {
+  font-size: 16px;
+  color: #ff4d4f;
+  margin-bottom: 12px;
+  text-align: center;
+}

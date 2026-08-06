@@ -48,7 +48,15 @@ function scriptedReminder(capability, options) {
             });
             return ok(Object.freeze(list));
         },
-        register(intents) {
+        register(request) {
+            // ReminderSchedulerPort/v1: request = { intents, recurrenceRules }.
+            // A bare array is accepted for legacy callers.
+            const input = Array.isArray(request)
+                ? { intents: request, recurrenceRules: [] }
+                : request;
+            const intents = input && Array.isArray(input.intents)
+                ? input.intents
+                : [];
             if (mode === 'all-fail') {
                 const failed = intents.map(function (intent) {
                     return { key: intent.key.value, error: reminderError(REMINDER_ERROR_CODES.PERMISSION_DENIED, null) };
@@ -186,6 +194,14 @@ test('settle: no registration outcome leaves events untouched', () => {
     const result = settlePlanLifecycle(state, events, undefined);
     assert.equal(result.tag, 'Ok');
     assert.deepEqual(result.value, events);
+});
+
+test('settle: a PlanEnabled claim without a registration outcome is a shell defect', () => {
+    const state = { planLifecycle: { tag: 'Enabling' } };
+    const events = [{ tag: 'PlanEnabled' }];
+    const result = settlePlanLifecycle(state, events, undefined);
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'MISSING_REGISTRATION_OUTCOME');
 });
 
 // ---------------------------------------------------------------- shell gating

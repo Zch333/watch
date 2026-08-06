@@ -90,6 +90,29 @@ test('contract/reminder: register is idempotent by semantic key', () => {
     assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
 });
 
+test('contract/reminder: register(request) forwards and records recurrence rules', () => {
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    const rule = Object.freeze({
+        tag: 'RecurrenceRule',
+        weekdays: Object.freeze(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+        minuteOfDay: 565,
+        repeatKind: 'Weekly'
+    });
+    const result = adapter.register({
+        intents: [intent('k-1', 565)],
+        recurrenceRules: [rule]
+    });
+    assert.equal(result.tag, 'Ok');
+    // The rules must arrive intact: the effect interpreter and the adapter
+    // boundary must never drop them (review P0-04).
+    assert.deepEqual(adapter._lastRecurrenceRules(), [rule]);
+    assert.equal(adapter.listRegistered('move25').value.length, 1);
+
+    // Empty rules mean one-shot registration and are reported as such.
+    adapter.register({ intents: [intent('k-2', 595)], recurrenceRules: [] });
+    assert.deepEqual(adapter._lastRecurrenceRules(), []);
+});
+
 test('contract/reminder: re-registering a key reschedules its absolute due time', () => {
     const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
     const base = intent('k-1', 565);

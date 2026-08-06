@@ -2,7 +2,8 @@ import { domainError, ERROR_CODES } from './errors.js';
 import { initialDomainState, withDomainState } from './model.js';
 import { noPause, noSkip } from './plan.js';
 import { err, ok } from './result.js';
-import { scheduleSettings } from './settings.js';
+import { parseScheduleInput } from './settings.js';
+import { localDate, minuteOfDay } from './values.js';
 import {
     breakActiveState,
     breakDueState,
@@ -38,17 +39,65 @@ function invalidSnapshot(reason, raw) {
     })));
 }
 
+function isNonNegativeInteger(value) {
+    return typeof value === 'number' &&
+        isFinite(value) &&
+        Math.floor(value) === value &&
+        value >= 0;
+}
+
 function isInstantLike(value) {
     return value !== null && typeof value === 'object' &&
         value.tag === 'Instant' &&
         typeof value.epochMilliseconds === 'number' &&
-        isFinite(value.epochMilliseconds);
+        isFinite(value.epochMilliseconds) &&
+        Math.floor(value.epochMilliseconds) === value.epochMilliseconds;
 }
 
 function hasSemanticKey(value) {
     return value !== null && typeof value === 'object' &&
         value.tag === 'SemanticKey' &&
         typeof value.value === 'string' && value.value.length > 0;
+}
+
+/**
+ * Extract the primitive payload of a tagged domain value
+ * ({ tag, value }) or pass plain values through. Never throws.
+ */
+function primitiveOf(value) {
+    return value !== null && typeof value === 'object' && 'value' in value
+        ? value.value
+        : value;
+}
+
+/**
+ * Strict settings rebuild: the stored shape is reduced to primitives and
+ * fed through the formal smart constructor again. A self-declared
+ * `tag: 'ScheduleSettings'` on arbitrary JSON is NOT trusted; every weekday,
+ * work block, rhythm value and version is re-validated.
+ */
+function decodeStoredSettings(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return invalidSnapshot('missing_settings', raw);
+    }
+    if (!Array.isArray(raw.weekdays) || raw.weekdays.length === 0 ||
+        !Array.isArray(raw.workBlocks) || raw.workBlocks.length === 0 ||
+        !raw.rhythm || typeof raw.rhythm !== 'object') {
+        return invalidSnapshot('invalid_schedule_settings_shape', raw);
+    }
+    return parseScheduleInput({
+        enabledFlag: raw.enabledFlag === true,
+        weekdays: raw.weekdays.map(primitiveOf),
+        workBlocks: raw.workBlocks.map(function (block) {
+            return {
+                start: primitiveOf(block && block.start),
+                end: primitiveOf(block && block.end)
+            };
+        }),
+        focusMinutes: primitiveOf(raw.rhythm.focusMinutes),
+        breakMinutes: primitiveOf(raw.rhythm.breakMinutes),
+        version: primitiveOf(raw.version)
+    });
 }
 
 function restoreLifecycle(raw) {
@@ -68,6 +117,12 @@ function restoreLifecycle(raw) {
             }
             return ok(planPausedState(raw.until));
         case 'Blocked':
+            // The nested error is diagnostic-only, but a spoofed payload must
+            // not smuggle arbitrary data into the state: require a shape.
+            if (!raw.error || typeof raw.error !== 'object' ||
+                typeof raw.error.code !== 'string' || raw.error.code.length === 0) {
+                return invalidSnapshot('invalid_plan_blocked_error', raw);
+            }
             return ok(planBlockedState(raw.error));
         default:
             return invalidSnapshot('unknown_plan_lifecycle_tag', raw);
@@ -104,12 +159,17 @@ function restoreBreakSession(raw) {
             return ok(breakDueState(raw.reminderKey, raw.dueAt));
         case 'Active':
             if (!isInstantLike(raw.startedAt) || !isInstantLike(raw.endsAt) ||
-                typeof raw.guidanceId !== 'string') {
+                typeof raw.guidanceId !== 'string' ||
+                typeof raw.sessionId !== 'string' || raw.sessionId.length === 0) {
                 return invalidSnapshot('invalid_break_active_fields', raw);
+            }
+            if (raw.endsAt.epochMilliseconds <= raw.startedAt.epochMilliseconds) {
+                return invalidSnapshot('invalid_break_active_interval', raw);
             }
             return ok(breakActiveState(raw.sessionId, raw.startedAt, raw.endsAt, raw.guidanceId));
         case 'Finished':
-            if (!isInstantLike(raw.finishedAt)) {
+            if (!isInstantLike(raw.finishedAt) ||
+                typeof raw.sessionId !== 'string' || raw.sessionId.length === 0) {
                 return invalidSnapshot('invalid_break_finished_fields', raw);
             }
             const outcomeResult = restoreOutcome(raw.outcome);
@@ -158,10 +218,20 @@ function restorePause(raw) {
             typeof raw.minuteOfDay.value !== 'number') {
             return invalidSnapshot('invalid_pause_through_local', raw);
         }
+        // Rebuild through the smart constructors: a spoofed
+        // PauseThroughLocal tag must not smuggle an invalid date through.
+        const dateResult = localDate(raw.localDate.year, raw.localDate.month, raw.localDate.day);
+        if (dateResult.tag === 'Err') {
+            return invalidSnapshot('invalid_pause_through_local', raw);
+        }
+        const minuteResult = minuteOfDay(raw.minuteOfDay.value);
+        if (minuteResult.tag === 'Err') {
+            return invalidSnapshot('invalid_pause_through_local', raw);
+        }
         return ok(Object.freeze({
             tag: 'PauseThroughLocal',
-            localDate: raw.localDate,
-            minuteOfDay: raw.minuteOfDay
+            localDate: dateResult.value,
+            minuteOfDay: minuteResult.value
         }));
     }
     return invalidSnapshot('unknown_pause_tag', raw);
@@ -227,7 +297,7 @@ export function migrateSnapshot(raw) {
             raw: raw
         })));
     }
-    if (typeof version !== 'number' || version < 1) {
+    if (typeof version !== 'number' || version % 1 !== 0 || version < 1) {
         return err(domainError(ERROR_CODES.UNSUPPORTED_SCHEMA_VERSION, version));
     }
     if (version > CURRENT_SCHEMA_VERSION) {
@@ -236,20 +306,13 @@ export function migrateSnapshot(raw) {
 
     // Future: while (version < CURRENT) { raw = migrateStep(raw, version); version += 1; }
     if (version === 1) {
-        let settings;
-        if (raw.settings && raw.settings.tag === 'ScheduleSettings') {
-            settings = raw.settings;
-        } else if (raw.settings && typeof raw.settings === 'object') {
-            const parsed = scheduleSettings(raw.settings);
-            if (parsed.tag === 'Err') {
-                return parsed;
-            }
-            settings = parsed.value;
-        } else {
-            return err(domainError(ERROR_CODES.INVALID_SNAPSHOT, Object.freeze({
-                reason: 'missing_settings'
-            })));
+        // Settings are NEVER trusted on their self-declared tag: every value
+        // is rebuilt and re-validated through the smart constructor.
+        const settingsResult = decodeStoredSettings(raw.settings);
+        if (settingsResult.tag === 'Err') {
+            return settingsResult;
         }
+        const settings = settingsResult.value;
 
         const lifecycleResult = restoreLifecycle(raw.planLifecycle);
         if (lifecycleResult.tag === 'Err') {
@@ -272,17 +335,32 @@ export function migrateSnapshot(raw) {
             return capabilityResult;
         }
 
+        // Missing revision/guidanceIndex mean a legacy payload and default to
+        // zero; present-but-corrupt values fail boot explicitly.
+        const revision = raw.revision === undefined || raw.revision === null
+            ? 0
+            : raw.revision;
+        if (!isNonNegativeInteger(revision)) {
+            return invalidSnapshot('invalid_revision', raw.revision);
+        }
+        const guidanceIndex = raw.guidanceIndex === undefined || raw.guidanceIndex === null
+            ? 0
+            : raw.guidanceIndex;
+        if (!isNonNegativeInteger(guidanceIndex)) {
+            return invalidSnapshot('invalid_guidance_index', raw.guidanceIndex);
+        }
+
         const snapshot = Object.freeze({
             tag: 'Snapshot',
             schemaVersion: 1,
-            revision: typeof raw.revision === 'number' ? raw.revision : 0,
+            revision: revision,
             settings: settings,
             planLifecycle: lifecycleResult.value,
             pause: pauseResult.value,
             skip: skipResult.value,
             breakSession: sessionResult.value,
             capability: capabilityResult.value,
-            guidanceIndex: typeof raw.guidanceIndex === 'number' ? raw.guidanceIndex : 0
+            guidanceIndex: guidanceIndex
         });
         return ok(snapshot);
     }

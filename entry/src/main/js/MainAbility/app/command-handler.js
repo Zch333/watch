@@ -66,8 +66,30 @@ function toRegistrationOutcome(result, intents) {
  *
  * Facts are never read inside the domain; they are collected here.
  * The domain never sees platform errors: they are mapped to domain errors.
+ *
+ * Commit protocol: a command only returns Ok when the settled state has been
+ * durably persisted. On any failure the caller receives the last committed
+ * state (never an unpersisted candidate), so the in-memory revision always
+ * matches the stored revision and later saves do not collide forever.
  */
 export function createCommandHandler(ports) {
+    /**
+     * Build a failure result. `committedState` is the state that was already
+     * durably stored (or the pre-command state); `candidateState` is only for
+     * diagnostics and must never become the global state.
+     */
+    function commandFailed(error, committedState, decision, results, facts, candidateState) {
+        return Object.freeze({
+            tag: 'Err',
+            error: error,
+            state: committedState,
+            candidateState: candidateState,
+            decision: decision,
+            results: results,
+            facts: facts
+        });
+    }
+
     return function handleCommand(state, command, options) {
         const opts = options || {};
 
@@ -93,6 +115,17 @@ export function createCommandHandler(ports) {
         if (wallResult.tag === 'Err') {
             return { tag: 'Err', error: wallResult.error, state: state };
         }
+        // Fail fast on a calendar port that lacks resolve(): the per-intent
+        // resolver fact below would otherwise throw inside the pure decision
+        // instead of surfacing an explicit error (CalendarPort/v1 contract).
+        if (typeof ports.calendar.resolve !== 'function') {
+            return {
+                tag: 'Err',
+                error: domainError(ERROR_CODES.CALENDAR_RESOLVE_UNAVAILABLE,
+                    { missing: 'calendar.resolve' }),
+                state: state
+            };
+        }
 
         // Precision facts: only commands that diff against the registered plan
         // pay for listRegistered; a failure there must never be read as "empty".
@@ -115,12 +148,21 @@ export function createCommandHandler(ports) {
             registeredPlan = listResult.value;
         }
 
+        // Per-intent calendar resolver fact: converts each future local time
+        // to its absolute instant through the CalendarPort. This is what makes
+        // plans correct across DST boundaries — a single current UTC offset
+        // is only valid for the present moment (review P1-01).
+        const resolveLocal = function (localDateValue, minuteOfDayValue) {
+            return ports.calendar.resolve(localDateValue, minuteOfDayValue);
+        };
+
         const facts = Object.freeze({
             now: now,
             localWall: wallResult.value,
             utcOffsetMinutes: offsetResult.value,
             registeredPlan: registeredPlan,
-            horizonDays: DEFAULT_HORIZON_DAYS
+            horizonDays: DEFAULT_HORIZON_DAYS,
+            resolveLocal: resolveLocal
         });
 
         // Startup/periodic reduction of expired sessions and pauses.
@@ -137,7 +179,9 @@ export function createCommandHandler(ports) {
             return {
                 tag: 'Err',
                 error: decisionResult.error,
-                state: currentState,
+                // Committed input state: the temporal reduction is
+                // deterministic and re-runs on the next command/refresh.
+                state: state,
                 facts: facts
             };
         }
@@ -160,6 +204,21 @@ export function createCommandHandler(ports) {
                     code: result.error.code,
                     at: now
                 }));
+                if (effect.tag === 'CancelReminders') {
+                    // Cancelling is the user-visible "off" switch: if the
+                    // system still holds reminders, we must not evolve and
+                    // persist PlanDisabled. The failure is explicit; the next
+                    // Disable/Reconcile retries the cleanup (see decide.js).
+                    // The returned state is the committed input state: the
+                    // temporal reduction is deterministic and re-runs later.
+                    return commandFailed(
+                        result.error,
+                        state,
+                        decision,
+                        results,
+                        facts
+                    );
+                }
             }
         }
 
@@ -167,31 +226,43 @@ export function createCommandHandler(ports) {
         //    domain never claims Enabled unless the system really registered.
         const settled = settlePlanLifecycle(currentState, decision.events, registration);
         if (settled.tag === 'Err') {
-            return {
-                tag: 'Err',
-                error: settled.error,
-                state: currentState,
-                decision: decision,
-                results: results
-            };
+            return commandFailed(
+                settled.error,
+                state,
+                decision,
+                results,
+                facts
+            );
         }
         const events = settled.value;
 
         // 3) Evolve with the settled events.
         const evolved = evolveAll(currentState, events);
         if (evolved.tag === 'Err') {
-            return {
-                tag: 'Err',
-                error: evolved.error,
-                state: currentState,
-                decision: decision,
-                results: results
-            };
+            return commandFailed(
+                evolved.error,
+                state,
+                decision,
+                results,
+                facts
+            );
         }
+        const candidateState = evolved.value;
 
-        // 4) Persist the final state (shell-owned, after settlement).
-        if (events.length > 0) {
-            const persist = ports.store.saveSnapshot(currentState.revision, createSnapshot(evolved.value));
+        // 4) Persist the final state (shell-owned, after settlement). A failed
+        //    save must NOT expose the candidate as committed: the returned
+        //    state stays at the last persisted revision so the optimistic
+        //    concurrency guard never collides forever, and the next
+        //    reconcile/listRegistered pass converges external side effects.
+        //
+        //    The expected revision is the COMMITTED input revision (state),
+        //    never the intermediate temporal reduction's revision: reduction
+        //    is deterministic and re-runs after a failure, so a failed save
+        //    must leave both in-memory and stored revisions untouched.
+        const committedRevision = state.revision;
+        if (candidateState.revision !== committedRevision) {
+            const persist = ports.store.saveSnapshot(committedRevision, createSnapshot(candidateState));
+            results.push(Object.freeze({ effectTag: 'PersistSnapshot', result: persist }));
             if (persist.tag === 'Err') {
                 ports.diagnostics.append(Object.freeze({
                     tag: 'EffectFailed',
@@ -199,13 +270,20 @@ export function createCommandHandler(ports) {
                     code: persist.error.code,
                     at: now
                 }));
+                return commandFailed(
+                    persist.error,
+                    state,
+                    decision,
+                    results,
+                    facts,
+                    candidateState
+                );
             }
-            results.push(Object.freeze({ effectTag: 'PersistSnapshot', result: persist }));
         }
 
         return {
             tag: 'Ok',
-            state: evolved.value,
+            state: candidateState,
             decision: decision,
             appliedEvents: events,
             results: results,

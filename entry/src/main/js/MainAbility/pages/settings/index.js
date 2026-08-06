@@ -32,7 +32,10 @@ function matchBlockIndex(blocks, presets) {
             return index;
         }
     }
-    return 0;
+    // -1 means the current setting is a custom value: it must not be mapped
+    // to the first preset, or an untouched save would silently replace the
+    // user's custom schedule with a preset (P1-09).
+    return -1;
 }
 
 function matchRhythmIndex(focus, brk, presets) {
@@ -41,7 +44,7 @@ function matchRhythmIndex(focus, brk, presets) {
             return index;
         }
     }
-    return 0;
+    return -1;
 }
 
 export default {
@@ -63,7 +66,14 @@ export default {
         rhythmClass3: '',
         selectedBlock: 0,
         selectedRhythm: 1,
-        enabledFlag: false
+        enabledFlag: false,
+        // Custom (non-preset) values read when the page opened. Saving
+        // without touching anything must preserve them exactly.
+        originalBlocks: [],
+        originalFocusMinutes: 25,
+        originalBreakMinutes: 5,
+        hasError: false,
+        errorText: ''
     },
     onShow() {
         this.restoreFromModel();
@@ -88,6 +98,13 @@ export default {
             this['weekdayClass' + index] = on[index] ? 'on' : '';
         }
 
+        // Keep the exact current values around for an untouched save.
+        this.originalBlocks = (summary.rawBlocks || []).map(function (block) {
+            return { start: block.start, end: block.end };
+        });
+        this.originalFocusMinutes = summary.focusMinutes;
+        this.originalBreakMinutes = summary.breakMinutes;
+
         const blockIndex = matchBlockIndex(summary.blocks, BLOCK_PRESETS);
         const rhythmIndex = matchRhythmIndex(summary.focusMinutes, summary.breakMinutes, RHYTHM_PRESETS);
         this.selectedBlock = blockIndex;
@@ -100,6 +117,8 @@ export default {
         }
 
         this.enabledFlag = model.planStatus === 'Enabled' || model.planStatus === 'Paused';
+        this.hasError = false;
+        this.errorText = '';
     },
 
     onWeekdayTap(index) {
@@ -126,17 +145,37 @@ export default {
                 weekdays.push(WEEKDAY_NAMES[index]);
             }
         }
-        const rhythm = RHYTHM_PRESETS[this.selectedRhythm];
-        dispatch({
+        // A preset hit maps to the preset; a custom value falls back to what
+        // the page read when it opened.
+        const workBlocks = this.selectedBlock >= 0
+            ? BLOCK_PRESETS[this.selectedBlock]
+            : this.originalBlocks;
+        const rhythm = this.selectedRhythm >= 0
+            ? RHYTHM_PRESETS[this.selectedRhythm]
+            : {
+                focus: this.originalFocusMinutes,
+                break: this.originalBreakMinutes
+            };
+        const nextModel = dispatch({
             tag: 'SettingsSaved',
             raw: {
                 enabledFlag: this.enabledFlag,
                 weekdays: weekdays,
-                workBlocks: BLOCK_PRESETS[this.selectedBlock],
+                workBlocks: workBlocks,
                 focusMinutes: rhythm.focus,
                 breakMinutes: rhythm.break
             }
         });
-        navigateTo('home');
+        const errors = nextModel.errors || [];
+        if (errors.length === 0) {
+            // Only leave the page when saving, reconciling and persisting all
+            // succeeded: a failed save must stay visible (P1-10).
+            navigateTo('home');
+            return;
+        }
+        this.hasError = true;
+        this.errorText = errors[errors.length - 1].text ||
+            errors[errors.length - 1].code ||
+            '保存失败';
     }
 };

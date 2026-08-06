@@ -19,9 +19,9 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
 - **已完成**：
   - 纯领域内核：值类型/智能构造器、公历代数、日程生成与组合代数、抑制（暂停/跳过）、能力门禁策略、`decide`/`evolve` 纯决策与状态机、快照迁移、确定性动作建议轮换、提醒回调幂等（重复/跨键/禁用后回调不覆盖会话）；
   - 端口契约（clock/calendar/store/reminder/haptics/diagnostic/navigation）与内存假适配器；
-  - 效果解释器 + 命令处理器（Facts 经端口注入 → 纯决策 → 效果解释 → 状态演化）；
+  - 效果解释器 + 命令处理器（Facts 经端口注入 → 纯决策 → 效果解释 → 状态演化；未持久化的状态绝不作为已提交状态返回）；
   - MVU 纯投影与消息映射 + 首页/活动提醒/活动/设置/诊断 5 个 Lite JS 页面；
-  - **103 个宿主测试全部通过**（含性质测试、状态机、随机命令序列模型走查、工作流、端口契约、迁移、UI 更新、时间边界/时区、架构适应度）。
+  - **176 个宿主测试全部通过**（含性质测试、状态机、随机命令序列模型走查、工作流、端口契约、迁移、UI 更新、时间边界/时区/DST、架构适应度）。
 - **进行中/待办**：Lite 平台适配器（存储/时钟/振动/提醒）、GT6 真机能力探针、模拟器 UI 验证。
 - **关键限制**：后台提醒在息屏、应用退出、手机断连后的可靠性**尚未经 GT6 真机确认**（证据等级 `UNKNOWN`）；在获得 `DEVICE_CONFIRMED` 证据前，应用如实展示 `Unknown/Unsupported/ApprovalRequired`，不会伪装为“可靠后台已启用”。
 
@@ -35,7 +35,7 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
 | 应用模型 | FA（Feature Ability），JavaScript |
 | 构建系统 | Hvigor（无 `hvigorw` 包装脚本） |
 | 测试框架 | `@ohos/hypium` 1.0.25 |
-| 包名 | `com.example.watch`（占位，发布前替换） |
+| 包名 | `com.move25.watch`（vendor 仍为占位 `example`，发布门禁前替换） |
 | 开发 IDE | DevEco Studio（Lite SDK 6.1.1） |
 
 ## 仓库目录
@@ -84,13 +84,15 @@ code-linter.json5                # Linter 规则
 
 ## 测试
 
-- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`（Node 21+ 或支持 glob 展开的 shell），或直接运行 `node --test entry/src/main/js/MainAbility/tests-host/*.test.mjs`（Node 18+）。当前 103 个用例全部通过。
+- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`（Node 21+ 或支持 glob 展开的 shell），或直接运行 `node --test entry/src/main/js/MainAbility/tests-host/*.test.mjs`（Node 18+）。当前 176 个用例全部通过。
   - 调度算法示例与边界（日历 oracle、跨月/闰年、25/5、午休、周末、块长等于工作时长、活动结束恰等于块结束）；
   - 性质测试（排序、范围、周期间隔、组合代数、抑制单调、对账收敛、暂停归约）；
   - 状态机与非法迁移、提醒回调幂等（重复/跨键/禁用后回调不覆盖会话）、工作流端到端（启用→触发→活动→完成→关闭、部分注册失败与重试、重启恢复、时区变化）；
-  - 端口契约测试（语义键幂等、部分失败逐项报告、取消一致性、快照并发保护）；
-  - 持久化迁移（JSON 往返、损坏快照显式失败、版本迁移、损坏快照启动显式报错）；
-  - UI 状态更新测试（投影、`TickVisible` 纯重算、降级/不可用能力横幅、消息→命令映射、shell 全流程）；
+  - 一致性不变量：持久化失败返回 `Err` 且不暴露候选状态、取消提醒失败不提交 `Disabled`、孤儿提醒可由后续 `Disable`/`Reconcile` 清理、启动自动对账（过期会话归约 + 注册表收敛）；
+  - 提醒策略：递归规则必须到达适配器、递归容量按规则数检查、迟到回调与对账竞态（`dueAt + 容差` 内不取消）、`firedAt` 与 `reminderKey` 校验、DST 边界逐条按日历解析；
+  - 端口契约测试（语义键幂等、部分失败逐项报告、取消一致性、快照并发保护、recurrenceRules 传递）；
+  - 持久化迁移（JSON 往返、损坏快照显式失败、伪造 tag 不得绕过重建、版本迁移、损坏快照启动显式报错）；
+  - UI 状态更新测试（投影、`TickVisible` 纯重算、降级/不可用能力横幅、消息→命令映射、shell 全流程、自定义设置无损往返、诊断页最新优先）；
   - 架构适应度（FF-01 领域零平台依赖、FF-02 依赖方向、FF-03 无 ArkTS、平台权限白名单）。
 - **契约测试**：每个端口有内存适配器对照套件（`contract.test.mjs`）。
 - **模拟器/真机**：MVU 与页面需在 DevEco 模拟器验证；后台提醒、振动、重启恢复、功耗等行为必须在 GT6 真机验证，模拟器结果不能作为最终证据。
@@ -117,7 +119,7 @@ code-linter.json5                # Linter 规则
 2. 长期提醒绝不使用 `setInterval`/长 `setTimeout` 承担；倒计时只在页面可见时由 `TickVisible` 从绝对 `endsAt` 重算。
 3. 系统时间手动修改/时区变化后，下次激活执行全量对账；快照损坏时应用显式报错并可由用户重置，不回退默认而不告知。
 4. 页面导航与存储适配器证据等级为 `INFERRED`/`UNKNOWN`，需在 DevEco 模拟器与 GT6 上复核。
-5. `pages/index` 为临时探针页；产品入口为 `pages/home`（列表顺序待发布前调整）。
+5. 产品入口为 `pages/home`；`pages/index` 为 DevEco 模板遗留示例页，已不在 `config.json` 页面列表中（待清理）。
 6. `code-linter.json5` 已把 `**/*.js` 纳入 `files`，但该配置仅经 JSON5 语法自检，未经 DevEco Studio 同步验证；若同步或 lint 报解析问题，回退为仅 `**/*.ets` 即可。
 7. 宿主测试入口 `npm test` 依赖 Node 21+ 的测试运行器 glob 支持（或由 shell 展开 glob）；Node 18 请使用 README 给出的原始命令。
 

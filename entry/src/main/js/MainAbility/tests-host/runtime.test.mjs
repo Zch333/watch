@@ -181,3 +181,61 @@ test('runtime/shell: refresh settles an expired active session and persists it',
     assert.equal(saved.value.value.breakSession.tag, 'Finished');
     assert.equal(saved.value.value.breakSession.outcome.tag, 'Expired');
 });
+
+test('runtime/shell: boot automatically reconciles an expired session without any page command', () => {
+    const clock = createFixedClock(inst(600 * 60000)); // 10:00
+    const store = createMemoryStore();
+    initApp({
+        clock: clock,
+        store: store,
+        capability: capabilitySupported({ maxPendingCount: 30 })
+    });
+    dispatch({ tag: 'StartNowPressed' });
+    assert.equal(getState().breakSession.tag, 'Active');
+
+    // "Reboot" the shell on the same store with a later clock. bootApp alone
+    // (no page command, no refresh) must reduce the expired session and
+    // persist it (review P0-03).
+    clock.advance(10 * 60 * 1000); // 10:10 > endsAt 10:05
+    const model = initApp({
+        clock: clock,
+        store: store,
+        capability: capabilitySupported({ maxPendingCount: 30 })
+    });
+    assert.equal(getState().breakSession.tag, 'Finished');
+    assert.equal(getState().breakSession.outcome.tag, 'Expired');
+    assert.equal(model.errors.length, 0);
+    assert.equal(store.loadSnapshot().value.value.breakSession.tag, 'Finished');
+});
+
+test('runtime/shell: boot automatically cancels orphan reminders while Disabled', () => {
+    const clock = createFixedClock(inst(600 * 60000)); // 10:00
+    const store = createMemoryStore();
+    const reminders = createRecordingReminder({
+        capability: capabilitySupported({ maxPendingCount: 30 })
+    });
+    const shared = { clock: clock, store: store, reminders: reminders };
+    initApp(shared);
+    dispatch({ tag: 'EnablePressed' });
+    assert.equal(getModel().planStatus, 'Enabled');
+    dispatch({ tag: 'DisablePressed' });
+    assert.equal(getModel().planStatus, 'Disabled');
+    assert.equal(reminders.listRegistered('move25').value.length, 0);
+
+    // Simulate the aftermath of a crashed disable: the system registry still
+    // holds a reminder while the persisted state says Disabled.
+    reminders.register({
+        intents: [{
+            tag: 'BreakStart',
+            key: { tag: 'SemanticKey', value: 'break-start:25-5:2026-08-06:625' }
+        }],
+        recurrenceRules: []
+    });
+    assert.equal(reminders.listRegistered('move25').value.length, 1);
+
+    // A fresh boot must clean the orphan without any user action.
+    initApp(shared);
+    assert.equal(getModel().planStatus, 'Disabled');
+    assert.equal(reminders.listRegistered('move25').value.length, 0,
+        'boot must cancel orphan reminders');
+});

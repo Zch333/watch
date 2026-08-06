@@ -5,8 +5,17 @@
  *
  * probeCapabilities() -> Result<ReminderError, ReminderCapability>
  * listRegistered(namespace) -> Result<ReminderError, RegisteredReminder[]>
- * register(intents) -> Result<ReminderError, RegistrationReport>
+ * register(request) -> Result<ReminderError, RegistrationReport>
  * cancel(keys) -> Result<ReminderError, CancellationReport>
+ *
+ * register(request):
+ *   request = { intents: ReminderIntent[], recurrenceRules: RecurrenceRule[] }
+ *
+ * - Empty recurrenceRules means one-shot absolute-time registration.
+ * - Non-empty recurrenceRules must be honored by adapters that declared
+ *   supportsRecurring: register once per weekly rule instead of once per
+ *   concrete date. An adapter must NEVER silently ignore the rules and
+ *   report success — unsupported rule kinds are an explicit error.
  *
  * Guarantees:
  * - Registration is idempotent per semantic key: re-registering the same key
