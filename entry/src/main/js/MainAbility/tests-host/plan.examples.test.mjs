@@ -55,6 +55,32 @@ test('example: generateBlockPlan returns empty when a focus segment cannot finis
     assert.deepEqual(generateBlockPlan(input.date, input.block, input.rhythm), []);
 });
 
+test('example: a block exactly as long as the focus segment emits one intent', () => {
+    const input = fixture([2026, 8, 6], 540, 565, 25, 5);
+    const plan = generateBlockPlan(input.date, input.block, input.rhythm);
+    assert.deepEqual(plan.map(function (intent) {
+        return intent.at.value;
+    }), [565]);
+});
+
+test('example: a break may end exactly at the block end', () => {
+    // 540 + 25 = 565 (break start), break ends at 570 == block.end.
+    const input = fixture([2026, 8, 6], 540, 570, 25, 5);
+    const plan = generateBlockPlan(input.date, input.block, input.rhythm);
+    assert.deepEqual(plan.map(function (intent) {
+        return intent.at.value;
+    }), [565]);
+});
+
+test('example: a block shorter than one cycle but long enough for one focus emits one intent', () => {
+    // 540..585: one focus (540-565) + partial break fits; next focus (570) would end at 595 > 585.
+    const input = fixture([2026, 8, 6], 540, 585, 25, 5);
+    const plan = generateBlockPlan(input.date, input.block, input.rhythm);
+    assert.deepEqual(plan.map(function (intent) {
+        return intent.at.value;
+    }), [565]);
+});
+
 test('property: generated points are sorted, in range, and one cycle apart', () => {
     for (let start = 0; start <= 1320; start += 37) {
         for (let focus = 1; focus <= 60; focus += 7) {

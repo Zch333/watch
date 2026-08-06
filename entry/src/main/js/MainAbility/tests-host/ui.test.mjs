@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createHostApp } from '../app/composition-root.js';
+import { createMemoryStore } from '../adapters/memory/memory-store.js';
 import { observeCapability, enablePlan } from '../domain/commands.js';
 import { localToInstant } from '../domain/calendar.js';
 import { localDate, minuteOfDay } from '../domain/values.js';
@@ -171,6 +172,40 @@ test('shell: initApp + dispatch drives the model through real commands', () => {
     dispatch({ tag: 'AckFinishedPressed' });
     model = getModel();
     assert.equal(model.breakStatus, 'NoBreak');
+});
+
+test('mvu: degraded capability banner is explicit and not ok', () => {
+    const { state } = enabledState();
+    const degraded = Object.assign({}, state, {
+        capability: { tag: 'Degraded', reason: 'capacity 3' }
+    });
+    const model = projectModel(degraded, factsFor(at(2026, 8, 6, 600), 600));
+    assert.equal(model.capabilityBanner.level, 'warn');
+    assert.equal(model.capabilityBanner.text.includes('Degraded'), true);
+});
+
+test('mvu: unsupported capability banner reads Unsupported', () => {
+    const { state } = enabledState();
+    const unsupported = Object.assign({}, state, {
+        capability: { tag: 'Unsupported', reason: 'probe' }
+    });
+    const model = projectModel(unsupported, factsFor(at(2026, 8, 6, 600), 600));
+    assert.equal(model.capabilityBanner.level, 'error');
+    assert.equal(model.capabilityBanner.text.includes('Unsupported'), true);
+});
+
+test('shell: a corrupt snapshot surfaces an explicit error model at boot', () => {
+    const store = createMemoryStore();
+    store._seed({ schemaVersion: 1, settings: { tag: 'Broken' } });
+    const model = initApp({
+        store: store,
+        instant: at(2026, 8, 6, 600),
+        utcOffsetMinutes: OFFSET
+    });
+    assert.equal(model.errors.length > 0, true);
+    assert.equal(typeof model.errors[0].code, 'string');
+    assert.equal(model.errors[0].code.length > 0, true);
+    assert.equal(model.planStatus, 'Unknown');
 });
 
 test('shell: refresh reprojects from the current clock', () => {
