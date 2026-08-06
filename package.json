@@ -2,7 +2,6 @@
   "name": "move25-host-tests",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "description": "Host-side test runner for the Move25 pure domain and workflow tests. This manifest only drives Node tooling; the HarmonyOS Lite build is governed by oh-package.json5 and DevEco Studio.",
   "scripts": {
     "test": "node entry/src/main/js/MainAbility/tests-host/run.mjs"
