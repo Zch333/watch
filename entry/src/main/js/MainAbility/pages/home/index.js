@@ -17,10 +17,16 @@ function statusText(tag) {
  * start now, toggle, and the More page. Pause/skip/settings/diagnostics
  * live on pages/more (scrollable list).
  */
+const BANNER_COLORS = {
+    ok: '#7cd07c',
+    warn: '#ffcc00',
+    error: '#ff6b6b'
+};
+
 export default {
     data: {
         capabilityText: '提醒能力未确认',
-        capabilityLevel: 'warn',
+        bannerColor: '#ffcc00',
         planStatusText: '未知',
         nextBreak: '—',
         hasError: false,
@@ -34,7 +40,7 @@ export default {
         // Lite JS FA binds page instance fields (declared in `data`), so the
         // template is updated by writing `this.<field>`, not `this.data.<field>`.
         this.capabilityText = model.capabilityBanner.text;
-        this.capabilityLevel = model.capabilityBanner.level;
+        this.bannerColor = BANNER_COLORS[model.capabilityBanner.level] || BANNER_COLORS.warn;
         this.planStatusText = statusText(model.planStatus);
         this.nextBreak = model.nextBreakText;
         const errors = model.errors || [];

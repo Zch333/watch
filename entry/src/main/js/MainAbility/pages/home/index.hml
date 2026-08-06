@@ -1,9 +1,9 @@
 <div class="container">
-    <text class="banner {{capabilityLevel}}">{{capabilityText}}</text>
+    <text class="banner" style="color: {{bannerColor}}">{{capabilityText}}</text>
     <text class="status">计划：{{planStatusText}}</text>
     <text class="next">下次活动 {{nextBreak}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
-    <button class="btn primary" onclick="onStartNow">立即活动</button>
-    <button class="btn" onclick="onToggle">启用 / 关闭</button>
-    <button class="btn" onclick="onMore">更多</button>
+    <input type="button" class="btn-primary" value="立即活动" onclick="onStartNow"></input>
+    <input type="button" class="btn" value="启用 / 关闭" onclick="onToggle"></input>
+    <input type="button" class="btn" value="更多" onclick="onMore"></input>
 </div>

@@ -10,15 +10,6 @@
   color: #ffcc00;
   margin-bottom: 8px;
 }
-.banner.ok {
-  color: #7cd07c;
-}
-.banner.warn {
-  color: #ffcc00;
-}
-.banner.error {
-  color: #ff6b6b;
-}
 .status {
   font-size: 24px;
   color: #ffffff;
@@ -42,6 +33,6 @@
   background-color: #2a2a2e;
   color: #ffffff;
 }
-.btn.primary {
+.btn-primary {
   background-color: #0a59f7;
 }

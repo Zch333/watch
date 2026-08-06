@@ -37,14 +37,6 @@
   padding: 6px 10px;
   margin: 4px;
 }
-.chip.on {
-  background-color: #0a59f7;
-  color: #ffffff;
-}
-.chip.wide {
-  width: 300px;
-  text-align: center;
-}
 .btn {
   width: 240px;
   height: 48px;
@@ -53,7 +45,7 @@
   background-color: #2a2a2e;
   color: #ffffff;
 }
-.btn.primary {
+.btn-primary {
   background-color: #0a59f7;
 }
 .error {

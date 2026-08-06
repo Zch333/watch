@@ -3,7 +3,7 @@
     <text class="hint">站起来走动，简单伸展，看向远处放松眼睛</text>
     <text class="action" for="{{actions}}">{{$item}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
-    <button class="btn primary" onclick="onStart">开始 5 分钟</button>
-    <button class="btn" onclick="onSkip">跳过</button>
-    <button class="btn" onclick="onHome">返回首页</button>
+    <input type="button" class="btn-primary" value="开始 5 分钟" onclick="onStart"></input>
+    <input type="button" class="btn" value="跳过" onclick="onSkip"></input>
+    <input type="button" class="btn" value="返回首页" onclick="onHome"></input>
 </div>

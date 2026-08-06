@@ -2,7 +2,8 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/watch.iml" filepath="$PROJECT_DIR$/.idea/watch.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/entry.iml" filepath="$PROJECT_DIR$/.idea/modules/entry.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/watch.iml" filepath="$PROJECT_DIR$/.idea/modules/watch.iml" />
     </modules>
   </component>
 </project>

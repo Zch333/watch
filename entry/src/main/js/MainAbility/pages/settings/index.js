@@ -1,6 +1,13 @@
 import { dispatch, refresh, navigateTo } from '../_app-shell.js';
 
 const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Lite JS has no compound class selectors and no class data binding on
+// `text`, so the on/off chip state is bound as inline style colors instead.
+const CHIP_ON_BG = '#0a59f7';
+const CHIP_ON_FG = '#ffffff';
+const CHIP_OFF_BG = '#2a2a2e';
+const CHIP_OFF_FG = '#dddddd';
 const BLOCK_PRESETS = [
     [{ start: 540, end: 720 }, { start: 810, end: 1080 }],
     [{ start: 510, end: 720 }, { start: 780, end: 1050 }],
@@ -50,20 +57,34 @@ function matchRhythmIndex(focus, brk, presets) {
 export default {
     data: {
         weekdayOn: [true, true, true, true, true, false, false],
-        weekdayClass0: 'on',
-        weekdayClass1: 'on',
-        weekdayClass2: 'on',
-        weekdayClass3: 'on',
-        weekdayClass4: 'on',
-        weekdayClass5: '',
-        weekdayClass6: '',
-        blockClass0: 'on',
-        blockClass1: '',
-        blockClass2: '',
-        rhythmClass0: '',
-        rhythmClass1: 'on',
-        rhythmClass2: '',
-        rhythmClass3: '',
+        weekdayBg0: CHIP_ON_BG,
+        weekdayFg0: CHIP_ON_FG,
+        weekdayBg1: CHIP_ON_BG,
+        weekdayFg1: CHIP_ON_FG,
+        weekdayBg2: CHIP_ON_BG,
+        weekdayFg2: CHIP_ON_FG,
+        weekdayBg3: CHIP_ON_BG,
+        weekdayFg3: CHIP_ON_FG,
+        weekdayBg4: CHIP_ON_BG,
+        weekdayFg4: CHIP_ON_FG,
+        weekdayBg5: CHIP_OFF_BG,
+        weekdayFg5: CHIP_OFF_FG,
+        weekdayBg6: CHIP_OFF_BG,
+        weekdayFg6: CHIP_OFF_FG,
+        blockBg0: CHIP_ON_BG,
+        blockFg0: CHIP_ON_FG,
+        blockBg1: CHIP_OFF_BG,
+        blockFg1: CHIP_OFF_FG,
+        blockBg2: CHIP_OFF_BG,
+        blockFg2: CHIP_OFF_FG,
+        rhythmBg0: CHIP_OFF_BG,
+        rhythmFg0: CHIP_OFF_FG,
+        rhythmBg1: CHIP_ON_BG,
+        rhythmFg1: CHIP_ON_FG,
+        rhythmBg2: CHIP_OFF_BG,
+        rhythmFg2: CHIP_OFF_FG,
+        rhythmBg3: CHIP_OFF_BG,
+        rhythmFg3: CHIP_OFF_FG,
         selectedBlock: 0,
         selectedRhythm: 1,
         enabledFlag: false,
@@ -95,7 +116,8 @@ export default {
         }
         this.weekdayOn = on;
         for (let index = 0; index < WEEKDAY_NAMES.length; index += 1) {
-            this['weekdayClass' + index] = on[index] ? 'on' : '';
+            this['weekdayBg' + index] = on[index] ? CHIP_ON_BG : CHIP_OFF_BG;
+            this['weekdayFg' + index] = on[index] ? CHIP_ON_FG : CHIP_OFF_FG;
         }
 
         // Keep the exact current values around for an untouched save.
@@ -110,10 +132,12 @@ export default {
         this.selectedBlock = blockIndex;
         this.selectedRhythm = rhythmIndex;
         for (let index = 0; index < BLOCK_PRESETS.length; index += 1) {
-            this['blockClass' + index] = index === blockIndex ? 'on' : '';
+            this['blockBg' + index] = index === blockIndex ? CHIP_ON_BG : CHIP_OFF_BG;
+            this['blockFg' + index] = index === blockIndex ? CHIP_ON_FG : CHIP_OFF_FG;
         }
         for (let index = 0; index < RHYTHM_PRESETS.length; index += 1) {
-            this['rhythmClass' + index] = index === rhythmIndex ? 'on' : '';
+            this['rhythmBg' + index] = index === rhythmIndex ? CHIP_ON_BG : CHIP_OFF_BG;
+            this['rhythmFg' + index] = index === rhythmIndex ? CHIP_ON_FG : CHIP_OFF_FG;
         }
 
         this.enabledFlag = model.planStatus === 'Enabled' || model.planStatus === 'Paused';
@@ -124,18 +148,21 @@ export default {
     onWeekdayTap(index) {
         const on = !this.weekdayOn[index];
         this.weekdayOn[index] = on;
-        this['weekdayClass' + index] = on ? 'on' : '';
+        this['weekdayBg' + index] = on ? CHIP_ON_BG : CHIP_OFF_BG;
+        this['weekdayFg' + index] = on ? CHIP_ON_FG : CHIP_OFF_FG;
     },
     onBlockTap(index) {
         this.selectedBlock = index;
         for (let current = 0; current < BLOCK_PRESETS.length; current += 1) {
-            this['blockClass' + current] = current === index ? 'on' : '';
+            this['blockBg' + current] = current === index ? CHIP_ON_BG : CHIP_OFF_BG;
+            this['blockFg' + current] = current === index ? CHIP_ON_FG : CHIP_OFF_FG;
         }
     },
     onRhythmTap(index) {
         this.selectedRhythm = index;
         for (let current = 0; current < RHYTHM_PRESETS.length; current += 1) {
-            this['rhythmClass' + current] = current === index ? 'on' : '';
+            this['rhythmBg' + current] = current === index ? CHIP_ON_BG : CHIP_OFF_BG;
+            this['rhythmFg' + current] = current === index ? CHIP_ON_FG : CHIP_OFF_FG;
         }
     },
     onSave() {

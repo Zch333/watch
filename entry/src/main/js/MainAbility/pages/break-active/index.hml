@@ -4,7 +4,7 @@
     <text class="countdown">{{remainingText}}</text>
     <text class="action" for="{{actions}}">{{$item}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
-    <button class="btn primary" if="{{!finished}}" onclick="onComplete">提前完成</button>
-    <button class="btn" if="{{!finished}}" onclick="onSkip">跳过</button>
-    <button class="btn" onclick="onHome">返回首页</button>
+    <input type="button" class="btn-primary" value="提前完成" if="{{!finished}}" onclick="onComplete"></input>
+    <input type="button" class="btn" value="跳过" if="{{!finished}}" onclick="onSkip"></input>
+    <input type="button" class="btn" value="返回首页" onclick="onHome"></input>
 </div>
