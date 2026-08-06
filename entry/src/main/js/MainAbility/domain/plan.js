@@ -1,5 +1,7 @@
-import { compareLocalDates, weekdayOf } from './calendar.js';
+import { compareLocalDates, localToInstant, weekdayOf } from './calendar.js';
 import { semanticKey } from './values.js';
+import { err, ok } from './result.js';
+import { domainError, ERROR_CODES } from './errors.js';
 
 function pad(value, length) {
     let text = String(value);
@@ -203,28 +205,58 @@ export function applySuppression(plan, pause, skip) {
     return freezePlan(remaining);
 }
 
-function containsKey(plan, keyValue) {
+function containsFingerprint(plan, fingerprintValue) {
     for (let index = 0; index < plan.length; index += 1) {
-        if (plan[index].key.value === keyValue) {
+        if (intentFingerprint(plan[index]) === fingerprintValue) {
             return true;
         }
     }
     return false;
 }
 
+/**
+ * Fingerprint of an intent: semantic key + resolved absolute due time.
+ * The system reminder is identified by key, but after a timezone or clock
+ * change the same local key maps to a different absolute instant, so a diff
+ * must treat key+dueAt as the identity of a scheduled reminder.
+ */
+export function intentFingerprint(intent) {
+    const dueAt = intent && intent.dueAt && intent.dueAt.tag === 'Instant'
+        ? intent.dueAt.epochMilliseconds
+        : 0;
+    return (intent.key.value || '') + '@' + dueAt;
+}
+
+/**
+ * Resolve each intent's local wall minute to an absolute Instant using an
+ * explicit UTC offset. Pure: offset is a fact, never read from the platform.
+ */
+export function attachDueAt(plan, utcOffsetMinutes) {
+    const out = [];
+    for (let index = 0; index < plan.length; index += 1) {
+        const intent = plan[index];
+        const resolved = localToInstant(intent.localDate, intent.at, utcOffsetMinutes);
+        if (resolved.tag === 'Err') {
+            return resolved;
+        }
+        out.push(Object.freeze(Object.assign({}, intent, { dueAt: resolved.value })));
+    }
+    return ok(Object.freeze(out));
+}
+
 export function diffPlans(desiredPlan, registeredPlan) {
     const desired = combinePlans([], desiredPlan);
     const registered = combinePlans([], registeredPlan);
     const toRegister = desired.filter(function (intent) {
-        return !containsKey(registered, intent.key.value);
+        return !containsFingerprint(registered, intentFingerprint(intent));
     });
     const toCancel = registered.filter(function (intent) {
-        return !containsKey(desired, intent.key.value);
+        return !containsFingerprint(desired, intentFingerprint(intent));
     }).map(function (intent) {
         return intent.key.value;
     });
     const unchanged = desired.filter(function (intent) {
-        return containsKey(registered, intent.key.value);
+        return containsFingerprint(registered, intentFingerprint(intent));
     }).map(function (intent) {
         return intent.key.value;
     });

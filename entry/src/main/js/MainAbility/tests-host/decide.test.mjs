@@ -26,6 +26,7 @@ import { evolveAll, reduceTemporalState } from '../domain/evolve.js';
 import { initialDomainState } from '../domain/model.js';
 import { buildDesiredPlanForState } from '../domain/decide.js';
 import { createSnapshot } from '../domain/snapshot.js';
+import { diffPlans } from '../domain/plan.js';
 import { localDate, minuteOfDay } from '../domain/values.js';
 import { capabilitySupported, breakActiveState } from '../domain/state.js';
 import { instant } from '../domain/values.js';
@@ -387,7 +388,8 @@ test('example: a later firing supersedes a finished session', () => {
 
     // The next cycle's reminder (10:55) fires while the previous outcome is
     // still on screen: the new prompt supersedes the finished session.
-    const next = decide(state, handleReminderFired('break-start:25-5:2026-08-06:655', fired.now), factsAt(2026, 8, 6, 655));
+    const at655 = factsAt(2026, 8, 6, 655);
+    const next = decide(state, handleReminderFired('break-start:25-5:2026-08-06:655', at655.now), at655);
     assert.equal(next.tag, 'Ok');
     assert.equal(next.value.events[0].tag, 'BreakBecameDue');
     const kept = evolveOk(state, next.value.events);
@@ -421,6 +423,63 @@ test('example: the same instant in another timezone projects a different plan', 
     });
     assert.equal(desired.tag, 'Ok');
     assert.equal(desired.value[0].key.value, 'break-start:25-5:2026-08-06:565');
+});
+
+test('example: a timezone change re-registers reminders at the new absolute times', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    const atPlus8 = buildDesiredPlanForState(state, factsAt(2026, 8, 6, 600));
+    assert.equal(atPlus8.tag, 'Ok');
+    const key = atPlus8.value[0].key.value;
+    const duePlus8 = atPlus8.value[0].dueAt.epochMilliseconds;
+
+    // Same wall clock, but the device moved to UTC+9: the local key is
+    // unchanged yet the absolute instant moved one hour earlier.
+    const now = factsAt(2026, 8, 6, 600).now;
+    const atPlus9 = buildDesiredPlanForState(state, {
+        now: now,
+        localWall: { localDate: date(2026, 8, 6), minuteOfDay: minute(600) },
+        utcOffsetMinutes: 540,
+        registeredPlan: [],
+        horizonDays: 3
+    });
+    assert.equal(atPlus9.tag, 'Ok');
+    assert.equal(atPlus9.value[0].key.value, key);
+    assert.equal(atPlus9.value[0].dueAt.epochMilliseconds, duePlus8 - 60 * 60000);
+
+    // The diff must reschedule, not treat the same key as unchanged.
+    const diff = diffPlans(atPlus9.value, atPlus8.value);
+    assert.equal(diff.toCancel.indexOf(key) >= 0, true);
+    assert.equal(diff.toRegister.some(function (intent) {
+        return intent.key.value === key;
+    }), true);
+    assert.equal(diff.unchanged.length, 0);
+});
+
+test('example: a callback arriving before its scheduled time is rejected', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    // Scheduled at 10:25, delivered at 10:00 (25 minutes early, beyond the
+    // INFERRED 5-minute tolerance): clock/timezone moved or a misfire.
+    const fired = factsAt(2026, 8, 6, 600);
+    const result = decide(
+        state,
+        handleReminderFired('break-start:25-5:2026-08-06:625', fired.now),
+        fired
+    );
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'REMINDER_FIRED_TOO_EARLY');
+});
+
+test('example: a callback slightly early stays within tolerance and becomes due', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    // Scheduled at 10:25, delivered at 10:23 (2 minutes early).
+    const fired = factsAt(2026, 8, 6, 623);
+    const result = decide(
+        state,
+        handleReminderFired('break-start:25-5:2026-08-06:625', fired.now),
+        fired
+    );
+    assert.equal(result.tag, 'Ok');
+    assert.equal(result.value.events[0].tag, 'BreakBecameDue');
 });
 
 test('example: start break from due creates an active session ending at +5 minutes', () => {

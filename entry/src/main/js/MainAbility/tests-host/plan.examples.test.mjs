@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
     applySuppression,
+    attachDueAt,
     combinePlans,
     diffPlans,
     generateBlockPlan,
@@ -11,6 +12,7 @@ import {
     pauseThroughLocal,
     skipReminder
 } from '../domain/plan.js';
+import { localToInstant } from '../domain/calendar.js';
 import { rhythm, workBlock } from '../domain/schedule.js';
 import { localDate, minuteOfDay, positiveMinutes } from '../domain/values.js';
 
@@ -184,4 +186,37 @@ test('property: diffPlans is empty for equal plans and converges after applicati
     assert.deepEqual(secondDiff.toRegister, []);
     assert.deepEqual(secondDiff.toCancel, []);
     assert.deepEqual(secondDiff.unchanged, keys(desired));
+});
+
+test('example: attachDueAt resolves each intent to an absolute instant', () => {
+    const input = fixture([2026, 8, 6], 540, 600, 25, 5);
+    const plan = generateBlockPlan(input.date, input.block, input.rhythm);
+    const resolved = attachDueAt(plan, 480);
+    assert.equal(resolved.tag, 'Ok');
+    assert.equal(resolved.value[0].dueAt.tag, 'Instant');
+    assert.equal(resolved.value[0].dueAt.epochMilliseconds > 0, true);
+    // 10:25 local at UTC+8 == 02:25 UTC.
+    assert.equal(resolved.value[0].dueAt.epochMilliseconds,
+        localToInstant(input.date, input.block.start, 480).value.epochMilliseconds + 25 * 60000);
+});
+
+test('example: diffPlans treats the same key with a new absolute time as a reschedule', () => {
+    const input = fixture([2026, 8, 6], 540, 630, 25, 5);
+    const plan = generateBlockPlan(input.date, input.block, input.rhythm);
+    const atPlus8 = attachDueAt(plan, 480);
+    const atPlus9 = attachDueAt(plan, 540);
+    assert.equal(atPlus8.tag, 'Ok');
+    assert.equal(atPlus9.tag, 'Ok');
+
+    // Same local keys, different absolute instants (timezone change).
+    const diff = diffPlans(atPlus9.value, atPlus8.value);
+    assert.equal(diff.toCancel.length, plan.length);
+    assert.equal(diff.toRegister.length, plan.length);
+    assert.equal(diff.unchanged.length, 0);
+
+    // Same plan and offset: fully unchanged.
+    const same = diffPlans(atPlus8.value, atPlus8.value);
+    assert.deepEqual(same.toCancel, []);
+    assert.deepEqual(same.toRegister, []);
+    assert.equal(same.unchanged.length, plan.length);
 });

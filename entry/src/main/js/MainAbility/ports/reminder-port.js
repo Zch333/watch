@@ -10,7 +10,12 @@
  *
  * Guarantees:
  * - Registration is idempotent per semantic key: re-registering the same key
- *   does not duplicate the system reminder.
+ *   does not duplicate the system reminder, but it MUST reschedule the system
+ *   reminder to the intent's absolute due time (the same local key maps to a
+ *   different instant after a timezone/clock change). The system id stays
+ *   stable across such updates.
+ * - Intents carry a resolved `dueAt` (absolute Instant); the adapter must
+ *   schedule at that absolute time, never at wall-clock arithmetic.
  * - Partial success is reported per intent; the report exposes each failed key.
  * - The system reminder id is adapter data; the domain identity is the semantic
  *   key, so an adapter must preserve the key through every operation.

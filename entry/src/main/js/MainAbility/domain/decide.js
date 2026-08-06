@@ -21,6 +21,7 @@ import { selectNextGuidance } from './guidance.js';
 import { applyStrategyWindow, assertCanEnableReliable, chooseSchedulingStrategy } from './policy.js';
 import {
     applySuppression,
+    attachDueAt,
     diffPlans,
     emptyPlan,
     findIntentByKey,
@@ -38,6 +39,13 @@ import { instant } from './values.js';
 
 const DEFAULT_HORIZON_DAYS = 3;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Early-fire tolerance: a reminder callback arriving more than this much
+ * BEFORE its scheduled absolute instant is treated as an anomaly (clock/timezone
+ * change or duplicate misfire). INFERRED default; calibrate with the GT6 probe.
+ */
+const EARLY_TOLERANCE_MS = 5 * 60 * 1000;
 
 function missingFact(facts, name) {
     const value = facts ? facts[name] : undefined;
@@ -69,7 +77,8 @@ function buildDesiredPlan(state, facts) {
             future.push(intent);
         }
     }
-    return ok(Object.freeze(future));
+    // Resolve each intent to an absolute due instant for fingerprint diffing.
+    return attachDueAt(future, facts.utcOffsetMinutes);
 }
 
 /**
@@ -85,7 +94,7 @@ function buildSuppressedPlan(state, facts) {
     const rawPlan = generateRangePlan(datesResult.value, state.settings);
     const pause = state.pause || noPause();
     const skip = state.skip || noSkip();
-    return ok(applySuppression(rawPlan, pause, skip));
+    return attachDueAt(applySuppression(rawPlan, pause, skip), facts.utcOffsetMinutes);
 }
 
 function reconcileEffects(state, facts, extraEvents) {
@@ -337,6 +346,20 @@ export function decide(state, command, facts) {
                         at: command.firedAt || factsValue.now
                     })
                 ]);
+            }
+            // Anomaly guard: a callback arriving well before its scheduled
+            // absolute instant means the clock/timezone moved or a duplicate
+            // misfired; surface it instead of silently accepting it.
+            if (intent.dueAt && intent.dueAt.tag === 'Instant') {
+                const firedInstant = command.firedAt || factsValue.now;
+                const delta = firedInstant.epochMilliseconds - intent.dueAt.epochMilliseconds;
+                if (delta < -EARLY_TOLERANCE_MS) {
+                    return err(domainError(ERROR_CODES.REMINDER_FIRED_TOO_EARLY, Object.freeze({
+                        key: keyValue,
+                        deltaMilliseconds: delta,
+                        toleranceMilliseconds: EARLY_TOLERANCE_MS
+                    })));
+                }
             }
             const dueAt = command.firedAt || factsValue.now;
             return decideSnapshot(state, [breakBecameDue(intent.key, dueAt)], [

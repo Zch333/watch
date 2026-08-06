@@ -46,6 +46,9 @@ export function createRecordingReminder(options) {
                     continue;
                 }
                 if (registry.has(key)) {
+                    // Idempotent by key, but reschedule: store the fresh intent
+                    // (with its absolute dueAt) while keeping the system id stable.
+                    registry.set(key, { systemId: registry.get(key).systemId, intent: intent });
                     registered.push(Object.freeze({
                         key: key,
                         systemId: registry.get(key).systemId

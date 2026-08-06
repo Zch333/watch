@@ -90,6 +90,28 @@ test('contract/reminder: register is idempotent by semantic key', () => {
     assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
 });
 
+test('contract/reminder: re-registering a key reschedules its absolute due time', () => {
+    const adapter = createRecordingReminder({ capability: capabilitySupported({ maxPendingCount: 30 }) });
+    const base = intent('k-1', 565);
+    const atT1 = Object.assign({}, base, { dueAt: instant(1000).value });
+    const atT2 = Object.assign({}, base, { dueAt: instant(2000).value });
+
+    const first = adapter.register([atT1]);
+    assert.equal(first.tag, 'Ok');
+    const second = adapter.register([atT2]);
+    assert.equal(second.tag, 'Ok');
+
+    // Still exactly one system reminder and a stable system id.
+    assert.equal(second.value.registered.length, 1);
+    assert.equal(adapter._registeredKeys().length, 1);
+    assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
+
+    // listRegistered reflects the rescheduled absolute time.
+    const listed = adapter.listRegistered().value[0];
+    assert.equal(listed.dueAt.tag, 'Instant');
+    assert.equal(listed.dueAt.epochMilliseconds, 2000);
+});
+
 test('contract/reminder: partial failure is reported per key', () => {
     const adapter = createRecordingReminder({
         capability: capabilitySupported({ maxPendingCount: 30 }),
