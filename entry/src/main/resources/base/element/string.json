@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "Move25 工作—活动节律提醒"
     },
     {
       "name": "MainAbility_desc",
-      "value": "description"
+      "value": "工作 25 分钟，活动 5 分钟；本地、低功耗节律提醒"
     },
     {
       "name": "MainAbility_label",
-      "value": "label"
+      "value": "Move25"
     }
   ]
 }

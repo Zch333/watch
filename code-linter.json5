@@ -1,6 +1,8 @@
 {
+  // Move25 为纯 JS 工程（无 .ets）。files 同时覆盖 JS；若 DevEco 同步或 lint 报解析问题，可回退为仅 "**/*.ets"。
   "files": [
-    "**/*.ets"
+    "**/*.ets",
+    "**/*.js"
   ],
   "ignore": [
     "**/src/ohosTest/**/*",
