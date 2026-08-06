@@ -39,7 +39,7 @@ test('example: snapshot round-trips through migrate and stateFromSnapshot', () =
     ]).value;
     state = Object.assign({}, state, {
         pause: { tag: 'PauseThroughLocal', localDate: date(2026, 8, 6), minuteOfDay: minuteOfDay(720).value },
-        breakSession: breakActiveState('s1', instant(1), instant(2), 'stand-walk-eyes'),
+        breakSession: breakActiveState('s1', instant(1).value, instant(2).value, 'stand-walk-eyes'),
         guidanceIndex: 3,
         revision: 7
     });
@@ -128,7 +128,7 @@ test('example: freshSnapshot is an explicit reset path', () => {
     assert.equal(snapshot.settings.rhythm.focusMinutes.value, 25);
 });
 
-test('example: unknown lifecycle/session tags restore conservatively', () => {
+test('example: unknown lifecycle/session tags fail strict decode', () => {
     const raw = {
         schemaVersion: 1,
         settings: {
@@ -144,12 +144,40 @@ test('example: unknown lifecycle/session tags restore conservatively', () => {
             version: { tag: 'SchemaVersion', value: 1 }
         },
         planLifecycle: { tag: 'Mystery' },
-        breakSession: { tag: 'Mystery' },
-        capability: { tag: 'Mystery' }
+        breakSession: { tag: 'NoBreak' },
+        pause: { tag: 'NoPause' },
+        skip: { tag: 'NoSkip' },
+        capability: { tag: 'Unknown' }
     };
     const migrated = migrateSnapshot(raw);
-    assert.equal(migrated.tag, 'Ok');
-    assert.equal(migrated.value.planLifecycle.tag, 'Disabled');
-    assert.equal(migrated.value.breakSession.tag, 'NoBreak');
-    assert.equal(migrated.value.capability.tag, 'Unknown');
+    assert.equal(migrated.tag, 'Err');
+    assert.equal(migrated.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(migrated.error.details.reason, 'unknown_plan_lifecycle_tag');
+});
+
+test('example: invalid nested values fail strict decode', () => {
+    const raw = {
+        schemaVersion: 1,
+        settings: {
+            weekdays: [{ tag: 'Weekday', value: 'Mon' }],
+            workBlocks: [
+                { tag: 'WorkBlock', start: { tag: 'MinuteOfDay', value: 540 }, end: { tag: 'MinuteOfDay', value: 720 } }
+            ],
+            rhythm: {
+                tag: 'Rhythm',
+                focusMinutes: { tag: 'PositiveMinutes', value: 25 },
+                breakMinutes: { tag: 'PositiveMinutes', value: 5 }
+            },
+            version: { tag: 'SchemaVersion', value: 1 }
+        },
+        planLifecycle: { tag: 'Paused', until: { tag: 'NotAnInstant' } },
+        breakSession: { tag: 'NoBreak' },
+        pause: { tag: 'NoPause' },
+        skip: { tag: 'NoSkip' },
+        capability: { tag: 'Unknown' }
+    };
+    const migrated = migrateSnapshot(raw);
+    assert.equal(migrated.tag, 'Err');
+    assert.equal(migrated.error.code, 'INVALID_SNAPSHOT');
+    assert.equal(migrated.error.details.reason, 'invalid_paused_until');
 });

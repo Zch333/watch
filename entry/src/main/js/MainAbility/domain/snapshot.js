@@ -25,101 +25,168 @@ import {
 
 export const CURRENT_SCHEMA_VERSION = 1;
 
+/**
+ * Strict decoding: a v1 snapshot must carry known tags and valid nested
+ * values. Unknown tags are never silently replaced by defaults; they are a
+ * corrupt payload and fail boot with INVALID_SNAPSHOT so the failure is
+ * explicit instead of the app silently resetting user state.
+ */
+function invalidSnapshot(reason, raw) {
+    return err(domainError(ERROR_CODES.INVALID_SNAPSHOT, Object.freeze({
+        reason: reason,
+        raw: raw
+    })));
+}
+
+function isInstantLike(value) {
+    return value !== null && typeof value === 'object' &&
+        value.tag === 'Instant' &&
+        typeof value.epochMilliseconds === 'number' &&
+        isFinite(value.epochMilliseconds);
+}
+
+function hasSemanticKey(value) {
+    return value !== null && typeof value === 'object' &&
+        value.tag === 'SemanticKey' &&
+        typeof value.value === 'string' && value.value.length > 0;
+}
+
 function restoreLifecycle(raw) {
-    if (!raw || typeof raw !== 'object') {
-        return planDisabledState();
+    if (raw === undefined || raw === null || typeof raw !== 'object') {
+        return invalidSnapshot('missing_plan_lifecycle', raw);
     }
     switch (raw.tag) {
         case 'Disabled':
-            return planDisabledState();
+            return ok(planDisabledState());
         case 'Enabling':
-            return planEnablingState();
+            return ok(planEnablingState());
         case 'Enabled':
-            return planEnabledState();
+            return ok(planEnabledState());
         case 'Paused':
-            return planPausedState(raw.until);
+            if (!isInstantLike(raw.until)) {
+                return invalidSnapshot('invalid_paused_until', raw);
+            }
+            return ok(planPausedState(raw.until));
         case 'Blocked':
-            return planBlockedState(raw.error);
+            return ok(planBlockedState(raw.error));
         default:
-            return planDisabledState();
+            return invalidSnapshot('unknown_plan_lifecycle_tag', raw);
     }
 }
 
 function restoreOutcome(raw) {
-    if (!raw || typeof raw !== 'object') {
-        return completedOutcome();
+    if (raw === undefined || raw === null || typeof raw !== 'object') {
+        return invalidSnapshot('missing_break_outcome', raw);
     }
-    if (raw.tag === 'Skipped') {
-        return skippedOutcome();
+    switch (raw.tag) {
+        case 'Completed':
+            return ok(completedOutcome());
+        case 'Skipped':
+            return ok(skippedOutcome());
+        case 'Expired':
+            return ok(expiredOutcome());
+        default:
+            return invalidSnapshot('unknown_break_outcome_tag', raw);
     }
-    if (raw.tag === 'Expired') {
-        return expiredOutcome();
-    }
-    return completedOutcome();
 }
 
 function restoreBreakSession(raw) {
-    if (!raw || typeof raw !== 'object') {
-        return noBreakState();
+    if (raw === undefined || raw === null || typeof raw !== 'object') {
+        return invalidSnapshot('missing_break_session', raw);
     }
     switch (raw.tag) {
         case 'NoBreak':
-            return noBreakState();
+            return ok(noBreakState());
         case 'Due':
-            return breakDueState(raw.reminderKey, raw.dueAt);
+            if (!hasSemanticKey(raw.reminderKey) || !isInstantLike(raw.dueAt)) {
+                return invalidSnapshot('invalid_break_due_fields', raw);
+            }
+            return ok(breakDueState(raw.reminderKey, raw.dueAt));
         case 'Active':
-            return breakActiveState(raw.sessionId, raw.startedAt, raw.endsAt, raw.guidanceId);
+            if (!isInstantLike(raw.startedAt) || !isInstantLike(raw.endsAt) ||
+                typeof raw.guidanceId !== 'string') {
+                return invalidSnapshot('invalid_break_active_fields', raw);
+            }
+            return ok(breakActiveState(raw.sessionId, raw.startedAt, raw.endsAt, raw.guidanceId));
         case 'Finished':
-            return breakFinishedState(raw.sessionId, raw.finishedAt, restoreOutcome(raw.outcome));
+            if (!isInstantLike(raw.finishedAt)) {
+                return invalidSnapshot('invalid_break_finished_fields', raw);
+            }
+            const outcomeResult = restoreOutcome(raw.outcome);
+            if (outcomeResult.tag === 'Err') {
+                return outcomeResult;
+            }
+            return ok(breakFinishedState(raw.sessionId, raw.finishedAt, outcomeResult.value));
         default:
-            return noBreakState();
+            return invalidSnapshot('unknown_break_session_tag', raw);
     }
 }
 
 function restoreCapability(raw) {
-    if (!raw || typeof raw !== 'object') {
-        return capabilityUnknown();
+    if (raw === undefined || raw === null || typeof raw !== 'object') {
+        return ok(capabilityUnknown());
     }
     switch (raw.tag) {
         case 'Unsupported':
-            return capabilityUnsupported(raw.reason);
+            return ok(capabilityUnsupported(raw.reason));
         case 'RequiresApproval':
-            return capabilityRequiresApproval(raw.details);
+            return ok(capabilityRequiresApproval(raw.details));
         case 'Supported':
-            return capabilitySupported(raw.features || {});
+            return ok(capabilitySupported(raw.features || {}));
         case 'Degraded':
-            return capabilityDegraded(raw.reason);
+            return ok(capabilityDegraded(raw.reason));
         case 'Unknown':
+            return ok(capabilityUnknown());
         default:
-            return capabilityUnknown();
+            return invalidSnapshot('unknown_capability_tag', raw);
     }
 }
 
 function restorePause(raw) {
-    if (!raw || raw.tag === 'NoPause') {
-        return noPause();
+    if (raw === undefined || raw === null) {
+        return ok(noPause());
+    }
+    if (typeof raw !== 'object') {
+        return invalidSnapshot('invalid_pause', raw);
+    }
+    if (raw.tag === 'NoPause') {
+        return ok(noPause());
     }
     if (raw.tag === 'PauseThroughLocal') {
-        return Object.freeze({
+        if (!raw.localDate || typeof raw.localDate !== 'object' ||
+            typeof raw.minuteOfDay !== 'object' ||
+            typeof raw.minuteOfDay.value !== 'number') {
+            return invalidSnapshot('invalid_pause_through_local', raw);
+        }
+        return ok(Object.freeze({
             tag: 'PauseThroughLocal',
             localDate: raw.localDate,
             minuteOfDay: raw.minuteOfDay
-        });
+        }));
     }
-    return noPause();
+    return invalidSnapshot('unknown_pause_tag', raw);
 }
 
 function restoreSkip(raw) {
-    if (!raw || raw.tag === 'NoSkip') {
-        return noSkip();
+    if (raw === undefined || raw === null) {
+        return ok(noSkip());
+    }
+    if (typeof raw !== 'object') {
+        return invalidSnapshot('invalid_skip', raw);
+    }
+    if (raw.tag === 'NoSkip') {
+        return ok(noSkip());
     }
     if (raw.tag === 'SkipReminder') {
-        return Object.freeze({
+        if (!hasSemanticKey(raw.reminderKey)) {
+            return invalidSnapshot('invalid_skip_reminder_key', raw);
+        }
+        return ok(Object.freeze({
             tag: 'SkipReminder',
             reminderKey: raw.reminderKey
-        });
+        }));
     }
-    return noSkip();
+    return invalidSnapshot('unknown_skip_tag', raw);
 }
 
 /**
@@ -184,16 +251,37 @@ export function migrateSnapshot(raw) {
             })));
         }
 
+        const lifecycleResult = restoreLifecycle(raw.planLifecycle);
+        if (lifecycleResult.tag === 'Err') {
+            return lifecycleResult;
+        }
+        const pauseResult = restorePause(raw.pause);
+        if (pauseResult.tag === 'Err') {
+            return pauseResult;
+        }
+        const skipResult = restoreSkip(raw.skip);
+        if (skipResult.tag === 'Err') {
+            return skipResult;
+        }
+        const sessionResult = restoreBreakSession(raw.breakSession);
+        if (sessionResult.tag === 'Err') {
+            return sessionResult;
+        }
+        const capabilityResult = restoreCapability(raw.capability || raw.capabilityObservation);
+        if (capabilityResult.tag === 'Err') {
+            return capabilityResult;
+        }
+
         const snapshot = Object.freeze({
             tag: 'Snapshot',
             schemaVersion: 1,
             revision: typeof raw.revision === 'number' ? raw.revision : 0,
             settings: settings,
-            planLifecycle: restoreLifecycle(raw.planLifecycle),
-            pause: restorePause(raw.pause),
-            skip: restoreSkip(raw.skip),
-            breakSession: restoreBreakSession(raw.breakSession),
-            capability: restoreCapability(raw.capability || raw.capabilityObservation),
+            planLifecycle: lifecycleResult.value,
+            pause: pauseResult.value,
+            skip: skipResult.value,
+            breakSession: sessionResult.value,
+            capability: capabilityResult.value,
             guidanceIndex: typeof raw.guidanceIndex === 'number' ? raw.guidanceIndex : 0
         });
         return ok(snapshot);

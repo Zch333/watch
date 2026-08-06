@@ -23,7 +23,7 @@
 | `calendar.js` | 纯公历代数：`weekdayOf`（Sakamoto）、`addDays`、`enumerateDates`、`localToInstant`/`instantToLocal`（固定 UTC 偏移，偏移是显式事实） |
 | `settings.js` | 设置聚合：`defaultScheduleSettings`（周一至五、09:00–12:00 + 13:30–18:00、25/5）、`parseScheduleInput`、`normalizeWorkBlocks`/`normalizeWeekdays`（排序、去重、拒绝重叠） |
 | `plan.js` | 提醒计划代数：块/日/范围计划生成、`combinePlans`、`applySuppression`、`diffPlans`、`firstFutureIntent`、`findIntentByKey` |
-| `policy.js` | 能力门禁策略：`canEnableReliable`、`chooseSchedulingStrategy`（Recurring/Rolling/SingleNext）、`applyStrategyWindow` |
+| `policy.js` | 能力门禁策略：`canEnableReliable`、`chooseSchedulingStrategy`（Recurring/Rolling/SingleNext）、`applyStrategyWindow`（按 dueAt 窗口/容量/最近一条真正解释）、`buildRecurrenceRules`（周重复规则） |
 | `guidance.js` | 确定性动作建议轮换，无随机数 |
 | `decide.js` | 纯决策函数 `decide : State × Command × Facts -> Result<Decision>`，返回事件 + 效果描述 |
 | `evolve.js` | 纯状态转换 `evolve : State × Event -> Result<State>`、`reduceTemporalState`（启动归约过期会话/暂停） |

@@ -1,3 +1,4 @@
+import { weekdayOf } from './calendar.js';
 import { domainError, ERROR_CODES } from './errors.js';
 import { err, ok } from './result.js';
 
@@ -61,15 +62,114 @@ export function chooseSchedulingStrategy(capability, desiredPlan) {
 }
 
 /**
- * Bound desired plan to strategy capacity.
+ * Bound desired plan to strategy capacity. Each strategy is interpreted, not
+ * just sliced:
+ *
+ *  - SingleNextStrategy: register exactly the nearest future intent, chosen by
+ *    absolute dueAt regardless of input order.
+ *  - RollingWindowStrategy: keep only intents whose absolute dueAt falls inside
+ *    the next `days` days (from `now`), capped at the platform capacity.
+ *  - RecurringCalendarStrategy: the full horizon plan passes through (the
+ *    adapter repeats it weekly); capacity applies defensively.
+ *
+ * `now` is the explicit current instant fact; the domain never reads the clock.
  */
-export function applyStrategyWindow(desiredPlan, strategy) {
+function epochMilliseconds(value) {
+    return value && value.tag === 'Instant' &&
+        typeof value.epochMilliseconds === 'number' && isFinite(value.epochMilliseconds)
+        ? value.epochMilliseconds
+        : null;
+}
+
+function nearestFutureIntent(plan, nowMs) {
+    let nearest = undefined;
+    for (let index = 0; index < plan.length; index += 1) {
+        const dueMs = epochMilliseconds(plan[index].dueAt);
+        if (dueMs === null) {
+            continue;
+        }
+        if (nowMs !== null && dueMs < nowMs) {
+            continue;
+        }
+        if (nearest === undefined || dueMs < epochMilliseconds(nearest.dueAt)) {
+            nearest = plan[index];
+        }
+    }
+    return nearest;
+}
+
+export function applyStrategyWindow(desiredPlan, strategy, now) {
+    const plan = desiredPlan || [];
     if (!strategy) {
-        return desiredPlan || [];
+        return Object.freeze(plan.slice());
     }
+    const nowMs = epochMilliseconds(now);
+
     if (strategy.tag === 'SingleNextStrategy') {
-        return Object.freeze((desiredPlan || []).slice(0, 1));
+        const nearest = nearestFutureIntent(plan, nowMs);
+        return nearest === undefined ? Object.freeze([]) : Object.freeze([nearest]);
     }
-    const maxPending = typeof strategy.maxPendingCount === 'number' ? strategy.maxPendingCount : 30;
-    return Object.freeze((desiredPlan || []).slice(0, maxPending));
+
+    if (strategy.tag === 'RollingWindowStrategy') {
+        const days = typeof strategy.days === 'number' ? strategy.days : 1;
+        const capacity = typeof strategy.maxPendingCount === 'number' ? strategy.maxPendingCount : 30;
+        const horizonMs = nowMs === null ? null : nowMs + days * 24 * 60 * 60 * 1000;
+        const windowed = plan.filter(function (intent) {
+            const dueMs = epochMilliseconds(intent.dueAt);
+            if (dueMs === null) {
+                return false;
+            }
+            if (nowMs !== null && dueMs < nowMs) {
+                return false;
+            }
+            if (horizonMs !== null && dueMs > horizonMs) {
+                return false;
+            }
+            return true;
+        });
+        return Object.freeze(windowed.slice(0, capacity));
+    }
+
+    // RecurringCalendarStrategy and any future strategy: pass the plan through.
+    const capacity = typeof strategy.maxPendingCount === 'number' ? strategy.maxPendingCount : 30;
+    return Object.freeze(plan.slice(0, capacity));
+}
+
+/**
+ * Collapse a concrete-date plan into weekly recurrence rules: one rule per
+ * reminder minute-of-day, carrying the weekday set. This is the artifact a
+ * RecurringCalendar adapter consumes (register once, repeat weekly) instead
+ * of one registration per concrete date. Pure; requires dueAt-free intents
+ * with a valid localDate.
+ */
+export function buildRecurrenceRules(plan) {
+    const byMinute = {};
+    const order = [];
+
+    for (let index = 0; index < (plan || []).length; index += 1) {
+        const intent = plan[index];
+        if (!intent || !intent.localDate || !intent.at) {
+            continue;
+        }
+        const dayResult = weekdayOf(intent.localDate);
+        if (dayResult.tag === 'Err') {
+            continue;
+        }
+        const minute = intent.at.value;
+        if (!byMinute[minute]) {
+            byMinute[minute] = { weekdays: {} };
+            order.push(minute);
+        }
+        byMinute[minute].weekdays[dayResult.value.value] = true;
+    }
+
+    const rules = order.map(function (minute) {
+        return Object.freeze({
+            tag: 'RecurrenceRule',
+            weekdays: Object.freeze(Object.keys(byMinute[minute].weekdays).sort()),
+            minuteOfDay: minute,
+            repeatKind: 'Weekly'
+        });
+    });
+    return Object.freeze(rules);
 }

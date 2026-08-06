@@ -469,6 +469,42 @@ test('example: a callback arriving before its scheduled time is rejected', () =>
     assert.equal(result.error.code, 'REMINDER_FIRED_TOO_EARLY');
 });
 
+test('example: a callback beyond the late tolerance is stale and rejected', () => {
+    const state = enabledStateAt(2026, 8, 6, 600);
+    // Scheduled at 10:25, delivered at 10:45 (20 minutes late, beyond the
+    // INFERRED 15-minute tolerance): the slot has moved on, the prompt
+    // would be noise.
+    const fired = factsAt(2026, 8, 6, 645);
+    const result = decide(
+        state,
+        handleReminderFired('break-start:25-5:2026-08-06:625', fired.now),
+        fired
+    );
+    assert.equal(result.tag, 'Err');
+    assert.equal(result.error.code, 'STALE_REMINDER_CALLBACK');
+    assert.equal(result.error.details.deltaMilliseconds, 20 * 60000);
+});
+
+test('example: a recurring-capable registration carries weekly recurrence rules', () => {
+    // SUPPORTED declares supportsRecurring + supportsCalendar, so the chosen
+    // strategy is RecurringCalendar: the effect carries both concrete intents
+    // and the weekly rules an adapter can register once per slot.
+    const state = enabledStateAt(2026, 8, 6, 600);
+    const result = decide(state, enablePlan(), factsAt(2026, 8, 6, 600));
+    assert.equal(result.tag, 'Ok');
+    const effect = result.value.effects.find(function (e) {
+        return e.tag === 'RegisterReminders';
+    });
+    assert.equal(!!effect, true);
+    assert.equal(Array.isArray(effect.recurrenceRules), true);
+    assert.equal(effect.recurrenceRules.length > 0, true);
+    const rule = effect.recurrenceRules[0];
+    assert.equal(rule.tag, 'RecurrenceRule');
+    assert.equal(rule.repeatKind, 'Weekly');
+    assert.equal(rule.weekdays.length > 0, true);
+    assert.equal(typeof rule.minuteOfDay, 'number');
+});
+
 test('example: a callback slightly early stays within tolerance and becomes due', () => {
     const state = enabledStateAt(2026, 8, 6, 600);
     // Scheduled at 10:25, delivered at 10:23 (2 minutes early).

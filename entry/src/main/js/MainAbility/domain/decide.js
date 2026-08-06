@@ -18,7 +18,7 @@ import {
     scheduleConfigured
 } from './events.js';
 import { selectNextGuidance } from './guidance.js';
-import { applyStrategyWindow, assertCanEnableReliable, chooseSchedulingStrategy } from './policy.js';
+import { applyStrategyWindow, assertCanEnableReliable, buildRecurrenceRules, chooseSchedulingStrategy } from './policy.js';
 import {
     applySuppression,
     attachDueAt,
@@ -46,6 +46,13 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
  * change or duplicate misfire). INFERRED default; calibrate with the GT6 probe.
  */
 const EARLY_TOLERANCE_MS = 5 * 60 * 1000;
+
+/**
+ * Late-fire tolerance: a callback arriving more than this much AFTER its
+ * scheduled instant is stale (the work/break slot has moved on; the prompt
+ * would be noise). INFERRED default; calibrate with the GT6 probe.
+ */
+const LATE_TOLERANCE_MS = 15 * 60 * 1000;
 
 function missingFact(facts, name) {
     const value = facts ? facts[name] : undefined;
@@ -103,9 +110,11 @@ function reconcileEffects(state, facts, extraEvents) {
         return desiredResult;
     }
     let desired = desiredResult.value;
+    let strategy;
     const strategyResult = chooseSchedulingStrategy(state.capability, desired);
     if (strategyResult.tag === 'Ok') {
-        desired = applyStrategyWindow(desired, strategyResult.value);
+        strategy = strategyResult.value;
+        desired = applyStrategyWindow(desired, strategy, facts.now);
     }
     const registered = facts.registeredPlan || emptyPlan();
     const diff = diffPlans(desired, registered);
@@ -116,9 +125,12 @@ function reconcileEffects(state, facts, extraEvents) {
     if (evolved.tag === 'Err') {
         return evolved;
     }
+    const rules = strategy && strategy.tag === 'RecurringCalendarStrategy'
+        ? buildRecurrenceRules(desired)
+        : undefined;
     const effects = [
         cancelReminders(diff.toCancel),
-        registerReminders(diff.toRegister)
+        registerReminders(diff.toRegister, rules)
     ];
     return ok(decision(events, effects));
 }
@@ -358,6 +370,13 @@ export function decide(state, command, facts) {
                         key: keyValue,
                         deltaMilliseconds: delta,
                         toleranceMilliseconds: EARLY_TOLERANCE_MS
+                    })));
+                }
+                if (delta > LATE_TOLERANCE_MS) {
+                    return err(domainError(ERROR_CODES.STALE_REMINDER_CALLBACK, Object.freeze({
+                        key: keyValue,
+                        deltaMilliseconds: delta,
+                        toleranceMilliseconds: LATE_TOLERANCE_MS
                     })));
                 }
             }
