@@ -4,21 +4,22 @@ import { initialUiModel, projectModel } from './mvu/model.js';
 import { update as pureUpdate } from './mvu/update.js';
 
 /**
- * Page-facing shell: owns one host app instance (memory adapters), boots it,
- * probes capabilities and dispatches MVU messages through the pure update +
- * command handler pipeline.
+ * Page-facing shell: owns one app instance, boots it, probes capabilities and
+ * dispatches MVU messages through the pure update + command handler pipeline.
  *
- * This shell runs in the simulator and host tests. The device shell will swap
- * memory adapters for Lite platform adapters once capabilities are confirmed.
+ * Two composition roots:
+ *  - createHostApp (memory adapters): host tests + simulator baseline;
+ *  - createDeviceApp (platform adapters): the product HAP. Until capability
+ *    probes confirm adapters, the device path surfaces an explicit error
+ *    model instead of silently running on fake adapters.
  */
 
 let app = null;
 let state = null;
 let model = initialUiModel();
 
-export function initApp(options) {
-    app = createHostApp(options);
-    const bootResult = app.boot();
+function bootApp(instance) {
+    const bootResult = instance.boot();
     if (bootResult.tag === 'Err') {
         model = Object.freeze(Object.assign({}, initialUiModel(), {
             errors: Object.freeze([{
@@ -26,21 +27,75 @@ export function initApp(options) {
                 code: bootResult.error.code
             }])
         }));
-        return model;
+        return null;
     }
-    state = bootResult.state;
+    const booted = bootResult.state;
 
     // Observe capability through the reminder port (Unknown until a probe confirms).
-    const probe = app.probeCapabilities();
+    const probe = instance.probeCapabilities();
     if (probe.tag === 'Ok') {
-        const result = app.handleCommand(state, observeCapability(probe.value));
+        const result = instance.handleCommand(booted, observeCapability(probe.value));
         if (result.tag === 'Ok') {
             state = result.state;
             if (result.facts) {
                 model = projectModel(state, result.facts);
             }
+            return state;
         }
     }
+    state = booted;
+    return state;
+}
+
+export function initApp(options) {
+    let instance;
+    try {
+        instance = createHostApp(options);
+    } catch (error) {
+        model = Object.freeze(Object.assign({}, initialUiModel(), {
+            errors: Object.freeze([{
+                text: '宿主装配失败：' + (error && error.message ? error.message : String(error)),
+                code: 'HOST_COMPOSITION_FAILED'
+            }])
+        }));
+        return model;
+    }
+    app = instance;
+    bootApp(instance);
+    return model;
+}
+
+/**
+ * Product HAP entry: assemble the device app through the injected factory
+ * (createDeviceApp with probe-confirmed adapters). When adapters are not yet
+ * confirmed the factory throws and the shell reports an explicit error model
+ * (no crash, no silent fake adapters).
+ */
+export function initDeviceApp(factory, adapters) {
+    if (typeof factory !== 'function') {
+        model = Object.freeze(Object.assign({}, initialUiModel(), {
+            errors: Object.freeze([{
+                text: '设备装配工厂缺失',
+                code: 'DEVICE_FACTORY_MISSING'
+            }])
+        }));
+        return model;
+    }
+    let instance;
+    try {
+        instance = factory(adapters);
+    } catch (error) {
+        model = Object.freeze(Object.assign({}, initialUiModel(), {
+            errors: Object.freeze([{
+                text: '平台适配器未就绪（能力探针待执行）：' +
+                    (error && error.message ? error.message : String(error)),
+                code: 'ADAPTERS_NOT_CONFIRMED'
+            }])
+        }));
+        return model;
+    }
+    app = instance;
+    bootApp(instance);
     return model;
 }
 

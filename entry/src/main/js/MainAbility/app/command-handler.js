@@ -1,10 +1,18 @@
 import { decide } from '../domain/decide.js';
+import { domainError, ERROR_CODES } from '../domain/errors.js';
 import { evolveAll, reduceTemporalState } from '../domain/evolve.js';
 import { err, ok } from '../domain/result.js';
 import { interpretEffect } from './effect-interpreter.js';
 
 const NAMESPACE = 'move25';
 const DEFAULT_HORIZON_DAYS = 3;
+
+function isValidInstant(value) {
+    return value !== null && typeof value === 'object' &&
+        value.tag === 'Instant' &&
+        typeof value.epochMilliseconds === 'number' &&
+        isFinite(value.epochMilliseconds);
+}
 
 /**
  * Imperative shell: gather facts through ports, run the pure decision,
@@ -21,6 +29,14 @@ export function createCommandHandler(ports) {
             return { tag: 'Err', error: clockResult.error, state: state };
         }
         const now = clockResult.value;
+        // Shell-boundary guard: never let a malformed clock value reach the domain.
+        if (!isValidInstant(now)) {
+            return {
+                tag: 'Err',
+                error: domainError(ERROR_CODES.INVALID_INSTANT, now),
+                state: state
+            };
+        }
 
         const offsetResult = ports.calendar.utcOffset(now);
         if (offsetResult.tag === 'Err') {

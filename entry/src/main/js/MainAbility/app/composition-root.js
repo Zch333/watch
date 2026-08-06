@@ -5,15 +5,32 @@ import { createMemoryHaptics } from '../adapters/memory/memory-haptics.js';
 import { createMemoryStore } from '../adapters/memory/memory-store.js';
 import { createRecordingNavigation } from '../adapters/memory/recording-navigation.js';
 import { createRecordingReminder } from '../adapters/memory/recording-reminder.js';
-import { rehydrateFromRaw } from '../domain/snapshot.js';
-import { createCommandHandler } from './command-handler.js';
+import { createAppRuntime } from './app-runtime.js';
+
+function isInstant(value) {
+    return value !== null && typeof value === 'object' &&
+        value.tag === 'Instant' &&
+        typeof value.epochMilliseconds === 'number';
+}
 
 /**
  * Host composition root: wires memory adapters behind the ports.
  * Used by host tests and as the deterministic baseline for the device shell.
+ *
+ * Fail-fast: a host app without a clock source (options.instant or
+ * options.clock) would feed undefined into domain facts, so it is rejected
+ * here instead of crashing later inside a calendar conversion.
  */
 export function createHostApp(options) {
     const opts = options || {};
+
+    if (!opts.clock && !(opts.instant && isInstant(opts.instant))) {
+        throw new Error(
+            'createHostApp requires options.instant (Instant) or options.clock; ' +
+            'product HAP must use createDeviceApp with confirmed platform adapters'
+        );
+    }
+
     const clock = opts.clock || createFixedClock(opts.instant);
     const calendar = opts.calendar || createFixedCalendar(
         typeof opts.utcOffsetMinutes === 'number' ? opts.utcOffsetMinutes : 480
@@ -36,27 +53,6 @@ export function createHostApp(options) {
         diagnostics: diagnostics,
         navigation: navigation
     };
-    const handleCommand = createCommandHandler(ports);
 
-    return {
-        ports: ports,
-        handleCommand: handleCommand,
-        probeCapabilities: function () {
-            return reminders.probeCapabilities();
-        },
-        boot: function () {
-            const loaded = store.loadSnapshot();
-            if (loaded.tag === 'Err') {
-                return { tag: 'Err', error: loaded.error };
-            }
-            if (loaded.value.tag === 'None') {
-                return { tag: 'Ok', state: rehydrateFromRaw(null).value };
-            }
-            const rehydrated = rehydrateFromRaw(loaded.value.value);
-            if (rehydrated.tag === 'Err') {
-                return { tag: 'Err', error: rehydrated.error };
-            }
-            return { tag: 'Ok', state: rehydrated.value };
-        }
-    };
+    return createAppRuntime(ports);
 }
