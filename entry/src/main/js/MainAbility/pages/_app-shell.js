@@ -2,6 +2,7 @@ import { createHostApp } from '../app/composition-root.js';
 import { observeCapability } from '../domain/commands.js';
 import { createSnapshot } from '../domain/snapshot.js';
 import { reduceTemporalState } from '../domain/evolve.js';
+import { REMINDER_NAMESPACE } from '../app/command-handler.js';
 import { initialUiModel, projectModel } from './mvu/model.js';
 import { update as pureUpdate } from './mvu/update.js';
 
@@ -200,16 +201,36 @@ export function diagnosticsSnapshot() {
     if (!app) {
         return null;
     }
-    const entries = app.ports.diagnostics._all ? app.ports.diagnostics._all() : [];
-    const registeredKeys = app.ports.reminders._registeredKeys
-        ? app.ports.reminders._registeredKeys()
-        : [];
-    const peek = app.ports.store._peek ? app.ports.store._peek() : null;
+    // Formal port queries only: the diagnostics view must never depend on
+    // adapter privates. A failing query degrades to empty values instead of
+    // crashing the read-only page.
+    let entries = [];
+    const recent = app.ports.diagnostics.readRecent(12);
+    if (recent.tag === 'Ok') {
+        entries = recent.value;
+    }
+
+    let registeredKeys = [];
+    const listed = app.ports.reminders.listRegistered(REMINDER_NAMESPACE);
+    if (listed.tag === 'Ok') {
+        registeredKeys = (listed.value || []).map(function (intent) {
+            return intent && intent.key ? intent.key.value : null;
+        }).filter(function (key) {
+            return typeof key === 'string';
+        });
+    }
+
+    let storeRevision = 0;
+    const status = app.ports.store.readStatus();
+    if (status.tag === 'Ok') {
+        storeRevision = status.value.revision;
+    }
+
     return {
         capability: state ? state.capability : null,
         registeredKeys: registeredKeys,
         entries: entries,
-        storeRevision: peek ? peek.revision : 0,
+        storeRevision: storeRevision,
         planLifecycle: state ? state.planLifecycle.tag : 'Unknown'
     };
 }

@@ -33,18 +33,19 @@ export function createMemoryStore(initial) {
             revision = snapshot.revision;
             return ok(Object.freeze({ tag: 'Revision', value: revision }));
         },
+        readStatus() {
+            return ok(Object.freeze({
+                tag: 'StoreStatus',
+                revision: revision,
+                hasSnapshot: stored !== undefined
+            }));
+        },
         _seed(raw) {
             stored = raw;
             revision = (raw && typeof raw.revision === 'number') ? raw.revision : 0;
         },
         _failNextSave() {
             failNextSave = true;
-        },
-        _peek() {
-            return stored;
-        },
-        _revision() {
-            return revision;
         }
     };
 }

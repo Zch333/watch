@@ -86,9 +86,6 @@ export function createRecordingReminder(options) {
                 missing: Object.freeze(missing)
             }));
         },
-        _registeredKeys() {
-            return Array.from(registry.keys());
-        },
         _clearFailKeys() {
             failKeys.length = 0;
         },

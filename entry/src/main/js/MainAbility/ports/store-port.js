@@ -5,6 +5,7 @@
  *
  * loadSnapshot() -> Result<StoreError, Option<Snapshot>>
  * saveSnapshot(expectedRevision, snapshot) -> Result<StoreError, Revision>
+ * readStatus() -> Result<StoreError, StoreStatus>
  *
  * - The adapter is storage-only: it never parses, migrates or validates the
  *   snapshot (the shell owns migration via migrateSnapshot).
@@ -12,6 +13,9 @@
  *   snapshot remains readable.
  * - expectedRevision mismatch returns CONCURRENT_MODIFICATION so stale pages
  *   cannot overwrite newer state.
+ * - readStatus is the formal diagnostic query (revision + presence) for the
+ *   diagnostics page; view code must never reach into adapter privates.
+ *   StoreStatus: { tag: 'StoreStatus', revision: number, hasSnapshot: boolean }
  */
 
 export const STORE_ERROR_CODES = Object.freeze({

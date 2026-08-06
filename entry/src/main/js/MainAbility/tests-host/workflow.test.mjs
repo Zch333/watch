@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createHostApp } from '../app/composition-root.js';
+import { REMINDER_NAMESPACE } from '../app/command-handler.js';
 import { createFixedClock } from '../adapters/memory/fixed-clock.js';
 import {
     acknowledgeBreakFinished,
@@ -58,6 +59,20 @@ function enableFlow(app, state) {
     return state;
 }
 
+/**
+ * Formal query: the registered plan comes from the port contract, not from
+ * adapter privates.
+ */
+function registeredKeys(app) {
+    return app.ports.reminders.listRegistered(REMINDER_NAMESPACE).value.map(function (intent) {
+        return intent.key.value;
+    });
+}
+
+function diagnosticsEntries(app) {
+    return app.ports.diagnostics.readRecent(100).value;
+}
+
 test('workflow: full journey from enable to disable on memory adapters', () => {
     const app = createHostApp({
         instant: at(2026, 8, 6, 600),
@@ -70,7 +85,7 @@ test('workflow: full journey from enable to disable on memory adapters', () => {
     assert.equal(state.planLifecycle.tag, 'Disabled');
 
     state = enableFlow(app, state);
-    const registered = app.ports.reminders._registeredKeys();
+    const registered = registeredKeys(app);
     assert.equal(registered.includes('break-start:25-5:2026-08-06:625'), true);
     assert.equal(registered.includes('break-start:25-5:2026-08-06:655'), true);
 
@@ -98,7 +113,7 @@ test('workflow: full journey from enable to disable on memory adapters', () => {
     // Disable cancels everything.
     state = run(app, state, disablePlan()).state;
     assert.equal(state.planLifecycle.tag, 'Disabled');
-    assert.deepEqual(app.ports.reminders._registeredKeys(), []);
+    assert.deepEqual(registeredKeys(app), []);
 });
 
 test('workflow: partial registration failure is visible and reconciled on retry', () => {
@@ -113,9 +128,9 @@ test('workflow: partial registration failure is visible and reconciled on retry'
     state = enableResult.state;
 
     // The failed key is absent from the system registry.
-    assert.equal(app.ports.reminders._registeredKeys().includes('break-start:25-5:2026-08-06:625'), false);
+    assert.equal(registeredKeys(app).includes('break-start:25-5:2026-08-06:625'), false);
     // The failure was surfaced in diagnostics.
-    const diagnostics = app.ports.diagnostics._all();
+    const diagnostics = diagnosticsEntries(app);
     assert.equal(diagnostics.some(function (entry) {
         return entry.tag === 'EffectFailed' && entry.effect === 'RegisterReminders';
     }), true);
@@ -123,7 +138,7 @@ test('workflow: partial registration failure is visible and reconciled on retry'
     // Transient denial clears; reconcile retries and converges.
     app.ports.reminders._clearFailKeys();
     state = run(app, state, reconcilePlan()).state;
-    assert.equal(app.ports.reminders._registeredKeys().includes('break-start:25-5:2026-08-06:625'), true);
+    assert.equal(registeredKeys(app).includes('break-start:25-5:2026-08-06:625'), true);
 });
 
 test('workflow: restart recovery reduces expired active session and paused plan', () => {

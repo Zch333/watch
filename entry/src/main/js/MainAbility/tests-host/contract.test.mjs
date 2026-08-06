@@ -85,7 +85,7 @@ test('contract/reminder: register is idempotent by semantic key', () => {
     const second = adapter.register([a]);
     assert.equal(second.tag, 'Ok');
     assert.equal(second.value.registered.length, 1);
-    assert.equal(adapter._registeredKeys().length, 1);
+    assert.equal(adapter.listRegistered('move25').value.length, 1);
     // Same system id preserved across re-register
     assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
 });
@@ -103,7 +103,7 @@ test('contract/reminder: re-registering a key reschedules its absolute due time'
 
     // Still exactly one system reminder and a stable system id.
     assert.equal(second.value.registered.length, 1);
-    assert.equal(adapter._registeredKeys().length, 1);
+    assert.equal(adapter.listRegistered('move25').value.length, 1);
     assert.equal(first.value.registered[0].systemId, second.value.registered[0].systemId);
 
     // listRegistered reflects the rescheduled absolute time.
@@ -124,7 +124,12 @@ test('contract/reminder: partial failure is reported per key', () => {
     assert.equal(result.error.details.failed.length, 1);
     assert.equal(result.error.details.failed[0].key, 'k-bad');
     // Successful keys are still registered.
-    assert.deepEqual(adapter._registeredKeys(), ['k-ok']);
+    assert.deepEqual(
+        adapter.listRegistered('move25').value.map(function (intent) {
+            return intent.key.value;
+        }),
+        ['k-ok']
+    );
 });
 
 test('contract/reminder: cancel removes only requested keys and reports missing', () => {
@@ -134,7 +139,12 @@ test('contract/reminder: cancel removes only requested keys and reports missing'
     assert.equal(result.tag, 'Ok');
     assert.deepEqual(result.value.cancelled, ['k-1']);
     assert.deepEqual(result.value.missing, ['k-nope']);
-    assert.deepEqual(adapter._registeredKeys(), ['k-2']);
+    assert.deepEqual(
+        adapter.listRegistered('move25').value.map(function (intent) {
+            return intent.key.value;
+        }),
+        ['k-2']
+    );
 });
 
 test('contract/reminder: probe surfaces Unsupported without guessing', () => {
@@ -167,7 +177,22 @@ test('contract/diagnostics: append and readRecent are newest-first with a cap', 
     assert.deepEqual(recent.value.map(function (e) {
         return e.tag;
     }), ['D', 'C', 'B']);
-    assert.equal(diagnostics._all().length, 3);
+    // The ring is capped: readRecent(10) still returns only the capacity.
+    assert.equal(diagnostics.readRecent(10).value.length, 3);
+});
+
+test('contract/store: readStatus reports revision and presence through the port', () => {
+    const store = createMemoryStore();
+    const before = store.readStatus();
+    assert.equal(before.tag, 'Ok');
+    assert.equal(before.value.hasSnapshot, false);
+    assert.equal(before.value.revision, 0);
+
+    const snapshot = createSnapshot(initialDomainState());
+    assert.equal(store.saveSnapshot(0, snapshot).tag, 'Ok');
+    const after = store.readStatus();
+    assert.equal(after.value.hasSnapshot, true);
+    assert.equal(after.value.revision, snapshot.revision);
 });
 
 test('contract/navigation: routes are recorded in order', () => {

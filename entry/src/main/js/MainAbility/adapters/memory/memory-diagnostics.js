@@ -16,9 +16,6 @@ export function createMemoryDiagnostics(options) {
         },
         readRecent(limit) {
             return ok(Object.freeze(entries.slice(-limit).reverse()));
-        },
-        _all() {
-            return entries.slice();
         }
     };
 }

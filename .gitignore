@@ -1,4 +1,5 @@
 claude/node_modules
+/node_modules
 /oh_modules
 /local.properties
 /.idea
@@ -11,3 +12,13 @@ claude/node_modules
 **/.test
 /.appanalyzer
 /.lingma/
+
+# Signing material and certificates: never commit keys or certs.
+*.p12
+*.jks
+*.keystore
+*.pem
+*.cer
+*.crt
+*.key
+signingConfigs/

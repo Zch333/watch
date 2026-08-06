@@ -6,7 +6,7 @@ import { settlePlanLifecycle } from '../domain/settle.js';
 import { createSnapshot } from '../domain/snapshot.js';
 import { interpretEffect } from './effect-interpreter.js';
 
-const NAMESPACE = 'move25';
+export const REMINDER_NAMESPACE = 'move25';
 const DEFAULT_HORIZON_DAYS = 3;
 
 function isValidInstant(value) {
@@ -99,7 +99,7 @@ export function createCommandHandler(ports) {
         let registeredPlan = [];
         let listFailure;
         if (commandNeedsRegisteredPlan(command)) {
-            const listResult = ports.reminders.listRegistered(NAMESPACE);
+            const listResult = ports.reminders.listRegistered(REMINDER_NAMESPACE);
             if (listResult.tag === 'Err') {
                 ports.diagnostics.append(Object.freeze({
                     tag: 'RegisteredListFailed',
