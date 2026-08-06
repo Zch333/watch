@@ -1,0 +1,7 @@
+<div class="container">
+    <text class="title">活动进行中</text>
+    <text class="countdown">{{remainingText}}</text>
+    <text class="action" for="{{actions}}">{{$item}}</text>
+    <button class="btn primary" onclick="onComplete">提前完成</button>
+    <button class="btn" onclick="onSkip">跳过</button>
+</div>

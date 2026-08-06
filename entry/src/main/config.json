@@ -31,7 +31,12 @@
     "js": [
       {
         "pages": [
-          "pages/index/index"
+          "pages/index/index",
+          "pages/home/index",
+          "pages/break-due/index",
+          "pages/break-active/index",
+          "pages/settings/index",
+          "pages/diagnostics/index"
         ],
         "name": ".MainAbility"
       }

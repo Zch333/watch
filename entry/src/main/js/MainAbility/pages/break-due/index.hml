@@ -1,0 +1,7 @@
+<div class="container">
+    <text class="title">该活动了</text>
+    <text class="hint">站起来走动，简单伸展，看向远处放松眼睛</text>
+    <text class="action" for="{{actions}}">{{$item}}</text>
+    <button class="btn primary" onclick="onStart">开始 5 分钟</button>
+    <button class="btn" onclick="onSkip">跳过</button>
+</div>

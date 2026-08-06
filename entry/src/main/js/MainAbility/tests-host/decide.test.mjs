@@ -414,8 +414,8 @@ test('example: disable cancels every registered reminder and returns to Disabled
     assert.equal(applied.settings.enabledFlag, false);
 
     const again = decide(applied, disablePlan(), factsAt(2026, 8, 6, 600));
-    assert.deepEqual(again.events, []);
-    assert.deepEqual(again.effects, []);
+    assert.deepEqual(again.value.events, []);
+    assert.deepEqual(again.value.effects, []);
 });
 
 test('example: degraded capability still reconciles but cannot claim reliable enable', () => {
