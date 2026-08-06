@@ -34,6 +34,7 @@ import { err, ok } from './result.js';
 import { parseScheduleInput } from './settings.js';
 import { createSnapshot } from './snapshot.js';
 import { completedOutcome } from './state.js';
+import { evolveAll } from './evolve.js';
 import { instant } from './values.js';
 
 const DEFAULT_HORIZON_DAYS = 3;
@@ -101,19 +102,29 @@ function reconcileEffects(state, facts, extraEvents) {
     const registered = facts.registeredPlan || emptyPlan();
     const diff = diffPlans(desired, registered);
     const events = (extraEvents || []).concat([planReconciled(diff)]);
-    const nextState = Object.assign({}, state, { revision: state.revision + events.length });
+    const evolved = evolveAll(state, events);
+    if (evolved.tag === 'Err') {
+        return evolved;
+    }
     const effects = [
         cancelReminders(diff.toCancel),
         registerReminders(diff.toRegister),
-        persistSnapshot(createSnapshot(nextState))
+        persistSnapshot(createSnapshot(evolved.value))
     ];
     return ok(decision(events, effects));
 }
 
+/**
+ * Build a decision whose persisted snapshot reflects the events already
+ * applied, so stored state never lags the decision's own events.
+ */
 function decideSnapshot(state, events, extraEffects) {
-    const nextState = Object.assign({}, state, { revision: state.revision + (events || []).length });
+    const evolved = evolveAll(state, events || []);
+    if (evolved.tag === 'Err') {
+        return evolved;
+    }
     return ok(decision(events || [], (extraEffects || []).concat([
-        persistSnapshot(createSnapshot(nextState))
+        persistSnapshot(createSnapshot(evolved.value))
     ])));
 }
 
@@ -178,7 +189,7 @@ export function decide(state, command, facts) {
 
         case 'DisablePlan': {
             if (state.planLifecycle.tag === 'Disabled') {
-                return decision([], []);
+                return ok(decision([], []));
             }
             const registered = factsValue.registeredPlan || emptyPlan();
             const keys = registered.map(function (intent) {
@@ -383,7 +394,7 @@ export function decide(state, command, facts) {
             if (state.planLifecycle.tag !== 'Enabled' &&
                 state.planLifecycle.tag !== 'Paused' &&
                 state.planLifecycle.tag !== 'Enabling') {
-                return decision([], []);
+                return ok(decision([], []));
             }
             return reconcileEffects(state, factsValue, []);
         }
