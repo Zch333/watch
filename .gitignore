@@ -22,3 +22,10 @@ claude/node_modules
 *.crt
 *.key
 signingConfigs/
+
+
+
+.idea
+.codegenie
+.claude
+.appanalyzer
