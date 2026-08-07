@@ -15,15 +15,16 @@ Move25 是一款基于 **FUNAR（Functional Software Architecture）**、**Funct
 
 ## 当前状态
 
-- **阶段**：Phase 1–2、5 已完成（纯领域内核、端口与假适配器、MVU 与产品页面）；Phase 3 真机能力探针待 GT6 设备。
+- **阶段**：Phase 1–2、5 已完成；API 24 可用的设备适配器已接入，GT6 真机能力探针仍待设备与签名材料。
 - **已完成**：
   - 纯领域内核：值类型/智能构造器、公历代数、日程生成与组合代数、抑制（暂停/跳过）、能力门禁策略、`decide`/`evolve` 纯决策与状态机、快照迁移、确定性动作建议轮换、提醒回调幂等（重复/跨键/禁用后回调不覆盖会话）；
   - 端口契约（clock/calendar/store/reminder/haptics/diagnostic/navigation）与内存假适配器；
   - 效果解释器 + 命令处理器（Facts 经端口注入 → 纯决策 → 效果解释 → 状态演化；未持久化的状态绝不作为已提交状态返回）；
   - MVU 纯投影与消息映射 + 首页/活动提醒/活动/设置/诊断 5 个 Lite JS 页面；
-  - **190 个宿主测试全部通过**（含性质测试、状态机、随机命令序列模型走查、工作流、端口契约、迁移、UI 更新、时间边界/时区/DST、架构适应度）。
-- **进行中/待办**：Lite 平台适配器（存储/时钟/振动/提醒）、GT6 真机能力探针、模拟器 UI 验证。
-- **关键限制**：后台提醒在息屏、应用退出、手机断连后的可靠性**尚未经 GT6 真机确认**（证据等级 `UNKNOWN`）；在获得 `DEVICE_CONFIRMED` 证据前，应用如实展示 `Unknown/Unsupported/ApprovalRequired`，不会伪装为“可靠后台已启用”。
+  - 系统时钟、本地时区、Lite Storage 与 Lite Vibrator 设备适配器；后台提醒在当前 `liteWearable` SysCap 缺失时明确报告不可用；
+  - **198 个宿主测试全部通过**（含设备时钟/日历/能力缺口测试、性质测试、状态机、随机命令序列模型走查、工作流、端口契约、迁移、UI 更新、时间边界/时区/DST、架构适应度）。
+- **进行中/待办**：模拟器交互验证、存储/振动真机验证、签名与 GT6 能力探针。
+- **关键限制**：已安装 API 24 SDK 的 `liteWearable` SysCap 不包含 ReminderAgent，当前构建不会承诺或伪造后台提醒；如后续厂商 SDK/真机开放该能力，必须先通过独立探针再接入。
 
 ## 技术事实
 
@@ -46,6 +47,7 @@ entry/                           # 唯一可运行模块
     domain/                      # 纯领域内核（零平台依赖）
     ports/                       # 端口契约
     adapters/memory/             # 内存/记录假适配器（宿主测试）
+    adapters/device/             # SDK 已确认的设备适配器与能力缺口适配器
     adapters/ui/                 # 路由器适配器（INFERRED）
     app/                         # 效果解释器、命令处理器、组合根
     pages/                       # MVU 核心 + 产品页面
@@ -80,11 +82,23 @@ code-linter.json5                # Linter 规则
 3. 使用 **debug** 构建安装到模拟器或 GT6 真机；使用 **release** 构建打包。
 4. 构建、签名、运行均通过 DevEco Studio 内置 Hvigor 集成完成。
 
+Lite SDK 6.1.1 的旧版 FA loader 会为 `app.js` 生成依赖 IDE 内部路径的
+`require("!!…manifest-loader.js…")` 包装器；该调用在 Lite 仿真器运行时不存在，会导致
+应用入口在首帧前抛 `ReferenceError`，表现为黑屏。工程根目录的 `hvigorfile.ts` 已注册
+`move25-lite-runtime` 构建插件：它在 `LegacyGenerateLiteCode` 前用 SDK 自带 webpack
+将 `MainAbility/lite/app-entry.js`（连同领域内核和设备适配器）打成 ES5 自包含入口，并
+对所有页面执行“不得残留相对 `require/import`”的校验。修改源码后请执行一次 **Clean
+Project → Rebuild**，确保旧的 `loader_out_lite` 缓存被替换；不应手工把 `build/` 目录
+提交到版本库。
+
+如果 DevEco 的预览器提示路径字符不合法，请把工程和 DevEco Studio 放到只含 ASCII
+字母、数字、空格、`-`、`_`、`.` 的路径下再导入（例如 `/Volumes/ZCH/project/watch`）。
+
 > 注意：仓库未包含 `hvigorw` 命令行包装或 npm 脚本，请勿在终端直接运行 `hvigor`。
 
 ## 测试
 
-- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`。入口为 `tests-host/run.mjs`——它枚举 `*.test.mjs` 后显式传给 `node --test`，因此**不依赖 Node 版本或 shell 的 glob 展开**（Node 18.13+ 与 Node 21+ 均可直接运行，见已知限制第 7 条）。当前 190 个用例全部通过。
+- **宿主测试（不依赖设备）**：在仓库根目录运行 `npm test`。入口为 `tests-host/run.mjs`——它枚举 `*.test.mjs` 后显式传给 `node --test`，因此**不依赖 Node 版本或 shell 的 glob 展开**（Node 18.13+ 与 Node 21+ 均可直接运行，见已知限制第 7 条）。当前 198 个用例全部通过。
   - 调度算法示例与边界（日历 oracle、跨月/闰年、25/5、午休、周末、块长等于工作时长、活动结束恰等于块结束）；
   - 性质测试（排序、范围、周期间隔、组合代数、抑制单调、对账收敛、暂停归约、**规则星期并集 ⊇ 配置星期、例外不得进入规则模板**）；
   - 状态机与非法迁移、提醒回调幂等（重复/跨键/禁用后回调不覆盖会话、Enabling 期间回调忽略）、工作流端到端（启用→触发→活动→完成→关闭、部分注册失败与重试、重启恢复、时区变化、**周三启用仍生成 Mon–Fri 周规则、一次性跳过以例外表达**）；
@@ -105,9 +119,9 @@ code-linter.json5                # Linter 规则
 | 端口契约与内存适配器 | 宿主测试通过 | 已实现 |
 | MVU 投影与页面 | INFERRED（待模拟器） | 已实现，待 DevEco 验证 |
 | 页面导航 `@system.router` | INFERRED（Lite 标准 API） | 已实现，待模拟器确认 |
-| 本地存储（Lite storage） | UNKNOWN | 待探针（Probe 0） |
-| 振动（Lite vibrator） | UNKNOWN | 待探针（Probe 0） |
-| 后台提醒：前台触发 | UNKNOWN | 待探针（Probe 2/3） |
+| 本地存储（Lite storage） | SDK_CONFIRMED | 已接入并编译；待模拟器/真机行为验证 |
+| 振动（Lite vibrator） | SDK_CONFIRMED | 已接入并编译；待真机触感验证 |
+| 后台提醒：前台触发 | SDK 不支持当前目标 | `liteWearable` SysCap 无 ReminderAgent，UI 明确禁用 |
 | 后台提醒：表盘/息屏/退出/断连 | UNKNOWN | 待探针（Probe 3） |
 | 后台提醒：重启/免打扰/低电量/容量 | UNKNOWN | 待探针（Probe 3/4） |
 
@@ -118,8 +132,8 @@ code-linter.json5                # Linter 规则
 1. 后台提醒可靠性未获 `DEVICE_CONFIRMED`，不得据此承诺产品级后台行为；当前 UI 如实展示能力状态。
 2. 长期提醒绝不使用 `setInterval`/长 `setTimeout` 承担；倒计时只在页面可见时由 `TickVisible` 从绝对 `endsAt` 重算。
 3. 系统时间手动修改/时区变化后，下次激活执行全量对账；快照损坏时应用显式报错并可由用户重置，不回退默认而不告知。
-4. 页面导航与存储适配器证据等级为 `INFERRED`/`UNKNOWN`，需在 DevEco 模拟器与 GT6 上复核。
-5. 产品入口为 `pages/home`；`pages/index` 为 DevEco 模板遗留示例页，已不在 `config.json` 页面列表中（待清理）。
+4. 页面导航仍为 `INFERRED`；存储和振动为 `SDK_CONFIRMED`，均需在模拟器/GT6 上升级为设备证据。
+5. 产品入口为 `pages/home`；DevEco 模板遗留的 `pages/index` 已清理，避免预览器与运行入口不一致。
 6. `code-linter.json5` 已把 `**/*.js` 纳入 `files`，但该配置仅经 JSON5 语法自检，未经 DevEco Studio 同步验证；若同步或 lint 报解析问题，回退为仅 `**/*.ets` 即可。
 7. 宿主测试入口 `npm test` 经 `tests-host/run.mjs` 显式枚举测试文件，**不依赖** Node 版本或 shell 的 glob 展开（Node 18.13+ 与 Node 21+ 均可运行；Node 24 在 Windows 上不接受目录参数、Node 18 不展开 glob，故不用这两种形式）。注意：`run.mjs` 不可在 `node --test run.mjs` 下运行（测试运行器会递归检测并跳过子进程，造成假绿），它检测到该上下文会以非 0 退出码报错。
 8. 递归提醒（RecurringCalendar）路径的端口契约已闭合（ruleKey 身份、一规则一注册、例外表达、回调映射），但**真机适配器尚未实现**；探针阶段建议先验证一次性提醒路径，递归路径待契约契约测试通过后接入。
