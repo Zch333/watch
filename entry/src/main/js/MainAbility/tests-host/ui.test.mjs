@@ -181,7 +181,8 @@ test('mvu: degraded capability banner is explicit and not ok', () => {
     });
     const model = projectModel(degraded, factsFor(at(2026, 8, 6, 600), 600));
     assert.equal(model.capabilityBanner.level, 'warn');
-    assert.equal(model.capabilityBanner.text.includes('Degraded'), true);
+    assert.equal(model.capabilityBanner.text, '后台提醒可靠性受限');
+    assert.equal(model.canSchedule, false);
 });
 
 test('mvu: unsupported capability banner reads Unsupported', () => {
@@ -191,7 +192,8 @@ test('mvu: unsupported capability banner reads Unsupported', () => {
     });
     const model = projectModel(unsupported, factsFor(at(2026, 8, 6, 600), 600));
     assert.equal(model.capabilityBanner.level, 'error');
-    assert.equal(model.capabilityBanner.text.includes('Unsupported'), true);
+    assert.equal(model.capabilityBanner.text, '此设备不支持后台提醒');
+    assert.equal(model.canSchedule, false);
 });
 
 test('shell: a corrupt snapshot surfaces an explicit error model at boot', () => {

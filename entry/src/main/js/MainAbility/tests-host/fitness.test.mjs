@@ -85,15 +85,42 @@ test('FF-03: no .ets or Stage/ArkTS artifacts exist under the JS module', () => 
     }), false, 'no ArkTS files allowed');
 });
 
-test('platform: config.json stays legacy FA with liteWearable and no network/sensor permissions', () => {
+test('platform: config.json stays legacy FA and requests only confirmed device permissions', () => {
     const config = JSON.parse(readRelative(join(JS_ROOT, '../../config.json')));
     assert.equal(config.module.deviceType.includes('liteWearable'), true);
     assert.equal(config.module.abilities[0].srcLanguage, 'js');
     assert.equal(config.module.abilities[0].type, 'page');
-    const permissions = config.module.requestsPermissions || [];
+    const permissions = config.module.reqPermissions || [];
+    assert.deepEqual(permissions.map(function (permission) {
+        return permission.name;
+    }), ['ohos.permission.VIBRATE']);
     for (const permission of permissions) {
-        assert.equal(/network|location|sensor|health/i.test(permission.name), false,
+        assert.equal(/network|location|health/i.test(permission.name), false,
             'unexpected permission: ' + permission.name);
+    }
+});
+
+test('platform: Lite page entry scripts are self-contained', () => {
+    const pagesDir = join(JS_ROOT, 'pages');
+    const pageFiles = [];
+    for (const pageName of readdirSync(pagesDir)) {
+        const pageFile = join(pagesDir, pageName, 'index.js');
+        try {
+            if (statSync(pageFile).isFile()) {
+                pageFiles.push(pageFile);
+            }
+        } catch (error) {
+            // Non-page directories (for example mvu/) are intentionally
+            // ignored; config.json is the deploy-page source of truth.
+        }
+    }
+    assert.equal(pageFiles.length, 6);
+    for (const file of pageFiles) {
+        const source = readRelative(file);
+        assert.equal(/(?:from|require\s*\()\s*['"]\.\.?\//.test(source), false,
+            relative(JS_ROOT, file) + ' retains a local deploy-time import');
+        assert.equal(source.includes('../_app-shell.js'), false,
+            relative(JS_ROOT, file) + ' must call the app facade through getApp()');
     }
 });
 

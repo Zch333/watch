@@ -13,7 +13,8 @@
  *   snapshot remains readable.
  * - expectedRevision mismatch returns CONCURRENT_MODIFICATION so stale pages
  *   cannot overwrite newer state.
- * - readStatus is the formal diagnostic query (revision + presence) for the
+ * - readStatus is the formal diagnostic query (revision + presence, with an
+ *   optional adapter-specific persistenceState) for the
  *   diagnostics page; view code must never reach into adapter privates.
  *   StoreStatus: { tag: 'StoreStatus', revision: number, hasSnapshot: boolean }
  */

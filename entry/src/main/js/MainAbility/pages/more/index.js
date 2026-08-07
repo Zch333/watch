@@ -1,25 +1,35 @@
-import { dispatch, getModel, navigateTo } from '../_app-shell.js';
-
-/**
- * More page: the secondary actions that do not fit the home screen inside
- * the 466px round display. All actions still go through the MVU pipeline
- * (dispatch) and the NavigationPort (navigateTo); nothing here touches the
- * platform router directly.
- */
-
-/**
- * Dispatch a message and leave for home only when the command succeeded
- * end-to-end (including persistence). On failure the page stays put so the
- * user can see the error instead of believing the action took effect (P1-10).
- */
-function dispatchThenHome(message) {
-    const nextModel = dispatch(message);
-    const errors = nextModel.errors || [];
-    if (errors.length > 0) {
-        return false;
+function runtime() {
+    var globalObject = typeof globalThis !== 'undefined'
+        ? globalThis
+        : (typeof global !== 'undefined' ? global : null);
+    if (globalObject && globalObject.__MOVE25_LITE_RUNTIME__) {
+        var liteApp = globalObject.__MOVE25_LITE_RUNTIME__;
+        if (liteApp && typeof liteApp.start === 'function') {
+            liteApp.start();
+        }
+        return liteApp;
     }
-    navigateTo('home');
-    return true;
+    if (typeof getApp !== 'function') {
+        if (globalObject && globalObject.__MOVE25_HOST_RUNTIME__) {
+            return globalObject.__MOVE25_HOST_RUNTIME__;
+        }
+        return null;
+    }
+    try {
+        var app = getApp();
+        if (app && app.start) {
+            app.start();
+        }
+        return app;
+    } catch (error) {
+        return null;
+    }
+}
+
+function lastError(model) {
+    var errors = model && model.errors ? model.errors : [];
+    var error = errors.length > 0 ? errors[errors.length - 1] : null;
+    return error ? (error.text || error.code || '操作失败') : '操作失败';
 }
 
 export default {
@@ -27,11 +37,30 @@ export default {
         hasError: false,
         errorText: ''
     },
-    onShow() {
-        // A failed pause/skip keeps the page open with the error visible;
-        // re-entering the page clears the stale notice.
+    onInit() {
         this.hasError = false;
         this.errorText = '';
+    },
+    onReady() {
+        this.syncModel();
+    },
+    onShow() {
+        this.hasError = false;
+        this.errorText = '';
+    },
+    syncModel() {
+        var app = runtime();
+        if (!app || !app.isReady()) {
+            return;
+        }
+        var model = app.refresh();
+        this.hasError = (model.errors || []).length > 0;
+        this.errorText = this.hasError ? lastError(model) : '';
+    },
+    // Host tests call render(); Lite's generated wrapper reserves that name
+    // for the compiled HML template.
+    render() {
+        this.syncModel();
     },
     onPauseToday() {
         this.runAction({ tag: 'PauseTodayPressed' });
@@ -43,19 +72,30 @@ export default {
         this.runAction({ tag: 'SkipNextPressed' });
     },
     onSettings() {
-        navigateTo('settings');
+        var app = runtime();
+        if (app) {
+            app.navigateTo('settings');
+        }
     },
     onDiagnostics() {
-        navigateTo('diagnostics');
+        var app = runtime();
+        if (app) {
+            app.navigateTo('diagnostics');
+        }
     },
     runAction(message) {
-        const ok = dispatchThenHome(message);
-        if (!ok) {
-            const model = getModel();
-            const errors = model.errors || [];
-            const last = errors[errors.length - 1];
+        var app = runtime();
+        if (!app || !app.isReady()) {
             this.hasError = true;
-            this.errorText = (last && (last.text || last.code)) || '操作失败';
+            this.errorText = '应用仍在初始化，请稍候';
+            return;
         }
+        var model = app.dispatch(message);
+        if ((model.errors || []).length > 0) {
+            this.hasError = true;
+            this.errorText = lastError(model);
+            return;
+        }
+        app.navigateTo('home');
     }
 };

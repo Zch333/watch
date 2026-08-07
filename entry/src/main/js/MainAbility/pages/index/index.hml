@@ -1,8 +1,0 @@
-<div class="container">
-    <text class="title">Move25 Probe</text>
-    <text class="row">Lite Wearable</text>
-    <text class="row">JS FA</text>
-    <text class="row">App version: {{ version }}</text>
-    <text class="log-count">{{ logCountText }}</text>
-    <button class="btn" onclick="onLogTap">写入日志</button>
-</div>

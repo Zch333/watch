@@ -1,4 +1,30 @@
-import { dispatch, refresh, navigateTo } from '../_app-shell.js';
+function runtime() {
+    var globalObject = typeof globalThis !== 'undefined'
+        ? globalThis
+        : (typeof global !== 'undefined' ? global : null);
+    if (globalObject && globalObject.__MOVE25_LITE_RUNTIME__) {
+        var liteApp = globalObject.__MOVE25_LITE_RUNTIME__;
+        if (liteApp && typeof liteApp.start === 'function') {
+            liteApp.start();
+        }
+        return liteApp;
+    }
+    if (typeof getApp !== 'function') {
+        if (globalObject && globalObject.__MOVE25_HOST_RUNTIME__) {
+            return globalObject.__MOVE25_HOST_RUNTIME__;
+        }
+        return null;
+    }
+    try {
+        var app = getApp();
+        if (app && app.start) {
+            app.start();
+        }
+        return app;
+    } catch (error) {
+        return null;
+    }
+}
 
 const WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -96,6 +122,12 @@ export default {
         hasError: false,
         errorText: ''
     },
+    onInit() {
+        this.restoreFromModel();
+    },
+    onReady() {
+        this.restoreFromModel();
+    },
     onShow() {
         this.restoreFromModel();
     },
@@ -106,7 +138,13 @@ export default {
      * (previously only enabledFlag was restored and the default rhythm was 50/10).
      */
     restoreFromModel() {
-        const model = refresh();
+        const app = runtime();
+        if (!app || !app.isReady()) {
+            this.hasError = true;
+            this.errorText = '应用仍在初始化，请稍候';
+            return;
+        }
+        const model = app.refresh();
         const summary = model.settingsSummary || {};
         const weekdays = summary.weekdays || [];
 
@@ -166,6 +204,12 @@ export default {
         }
     },
     onSave() {
+        const app = runtime();
+        if (!app || !app.isReady()) {
+            this.hasError = true;
+            this.errorText = '应用仍在初始化，请稍候';
+            return;
+        }
         const weekdays = [];
         for (let index = 0; index < WEEKDAY_NAMES.length; index += 1) {
             if (this.weekdayOn[index]) {
@@ -183,7 +227,7 @@ export default {
                 focus: this.originalFocusMinutes,
                 break: this.originalBreakMinutes
             };
-        const nextModel = dispatch({
+        const nextModel = app.dispatch({
             tag: 'SettingsSaved',
             raw: {
                 enabledFlag: this.enabledFlag,
@@ -197,7 +241,7 @@ export default {
         if (errors.length === 0) {
             // Only leave the page when saving, reconciling and persisting all
             // succeeded: a failed save must stay visible (P1-10).
-            navigateTo('home');
+            app.navigateTo('home');
             return;
         }
         this.hasError = true;

@@ -1,4 +1,30 @@
-import { diagnosticsSnapshot, navigateTo } from '../_app-shell.js';
+function runtime() {
+    var globalObject = typeof globalThis !== 'undefined'
+        ? globalThis
+        : (typeof global !== 'undefined' ? global : null);
+    if (globalObject && globalObject.__MOVE25_LITE_RUNTIME__) {
+        var liteApp = globalObject.__MOVE25_LITE_RUNTIME__;
+        if (liteApp && typeof liteApp.start === 'function') {
+            liteApp.start();
+        }
+        return liteApp;
+    }
+    if (typeof getApp !== 'function') {
+        if (globalObject && globalObject.__MOVE25_HOST_RUNTIME__) {
+            return globalObject.__MOVE25_HOST_RUNTIME__;
+        }
+        return null;
+    }
+    try {
+        var app = getApp();
+        if (app && app.start) {
+            app.start();
+        }
+        return app;
+    } catch (error) {
+        return null;
+    }
+}
 
 export default {
     data: {
@@ -6,30 +32,40 @@ export default {
         capability: 'Unknown',
         registeredCount: 0,
         storeRevision: 0,
+        storeState: 'Unknown',
         entries: []
     },
-    onShow() {
-        this.render();
+    onInit() {
+        this.syncModel();
     },
-    render() {
-        const snapshot = diagnosticsSnapshot();
+    onReady() {
+        this.syncModel();
+    },
+    onShow() {
+        this.syncModel();
+    },
+    syncModel() {
+        var app = runtime();
+        if (!app || !app.isReady()) {
+            this.planStatus = '初始化中';
+            this.capability = 'Unknown';
+            return;
+        }
+        var snapshot = app.diagnosticsSnapshot();
         if (!snapshot) {
             return;
         }
-        // Lite JS FA binds page instance fields; write this.<field> not this.data.<field>.
         this.planStatus = snapshot.planLifecycle;
         this.capability = snapshot.capability ? snapshot.capability.tag : 'Unknown';
-        this.registeredCount = snapshot.registeredKeys.length;
+        this.registeredCount = (snapshot.registeredKeys || []).length;
         this.storeRevision = snapshot.storeRevision;
-        // readRecent is already newest-first: the first entry is the most
-        // recent. Walking from the tail used to show the OLDEST entries and
-        // hid the latest ones (P1-11).
-        const lines = [];
-        const entries = snapshot.entries || [];
-        const count = Math.min(entries.length, 8);
-        for (let index = 0; index < count; index += 1) {
-            const entry = entries[index];
-            let line = entry.tag;
+        this.storeState = snapshot.storeState;
+        var lines = [];
+        var entries = snapshot.entries || [];
+        var count = Math.min(entries.length, 8);
+        for (var index = 0; index < count; index += 1) {
+            var entry = entries[index];
+            var line = entry.tag;
             if (entry.code) {
                 line += ' ' + entry.code;
             }
@@ -40,10 +76,16 @@ export default {
         }
         this.entries = lines;
     },
+    render() {
+        this.syncModel();
+    },
     onRefresh() {
-        this.render();
+        this.syncModel();
     },
     onHome() {
-        navigateTo('home');
+        var app = runtime();
+        if (app) {
+            app.navigateTo('home');
+        }
     }
 };

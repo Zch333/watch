@@ -20,6 +20,7 @@ export function initialUiModel() {
         remainingSeconds: 0,
         endsAtEpochMs: 0,
         capabilityBanner: Object.freeze({ level: 'warn', text: '提醒能力未确认' }),
+        canSchedule: false,
         currentGuidance: null,
         breakStatus: 'NoBreak',
         breakOutcome: null,
@@ -45,11 +46,11 @@ function capabilityBannerFor(capability) {
         case 'Unknown':
             return Object.freeze({ level: 'warn', text: '提醒能力未确认' });
         case 'Unsupported':
-            return Object.freeze({ level: 'error', text: '提醒能力不可用（Unsupported）' });
+            return Object.freeze({ level: 'error', text: '此设备不支持后台提醒' });
         case 'RequiresApproval':
-            return Object.freeze({ level: 'error', text: '提醒能力待授权（ApprovalRequired）' });
+            return Object.freeze({ level: 'error', text: '提醒能力需要授权' });
         case 'Degraded':
-            return Object.freeze({ level: 'warn', text: '提醒能力降级（Degraded）' });
+            return Object.freeze({ level: 'warn', text: '后台提醒可靠性受限' });
         default:
             return Object.freeze({ level: 'warn', text: '提醒能力未知' });
     }
@@ -148,6 +149,7 @@ export function projectModel(state, facts, errors) {
         remainingSeconds: remainingSeconds,
         endsAtEpochMs: endsAtEpochMs,
         capabilityBanner: capabilityBannerFor(state.capability),
+        canSchedule: !!(state.capability && state.capability.tag === 'Supported'),
         currentGuidance: guidanceFor(session, state.guidanceIndex),
         breakStatus: session ? session.tag : 'NoBreak',
         breakOutcome: breakOutcome,

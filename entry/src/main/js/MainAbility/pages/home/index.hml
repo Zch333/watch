@@ -4,6 +4,7 @@
     <text class="next">下次活动 {{nextBreak}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
     <input type="button" class="btn-primary" value="立即活动" onclick="onStartNow"></input>
-    <input type="button" class="btn" value="启用 / 关闭" onclick="onToggle"></input>
+    <input type="button" class="btn" value="{{toggleText}}" show="{{canSchedule}}" onclick="onToggle"></input>
+    <text class="hint" show="{{!canSchedule}}">定时提醒不可用，仍可立即开始活动</text>
     <input type="button" class="btn" value="更多" onclick="onMore"></input>
 </div>

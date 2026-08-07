@@ -28,6 +28,11 @@
         "type": "page"
       }
     ],
+    "reqPermissions": [
+      {
+        "name": "ohos.permission.VIBRATE"
+      }
+    ],
     "js": [
       {
         "pages": [

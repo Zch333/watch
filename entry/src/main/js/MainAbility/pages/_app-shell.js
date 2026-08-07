@@ -226,6 +226,10 @@ export function getState() {
     return state;
 }
 
+export function isReady() {
+    return !!(app && state);
+}
+
 /**
  * Page navigation through the NavigationPort. Pages must never import the
  * platform router directly; the port is wired to the platform adapter by the
@@ -265,9 +269,11 @@ export function diagnosticsSnapshot() {
     }
 
     let storeRevision = 0;
+    let storeState = 'Unknown';
     const status = app.ports.store.readStatus();
     if (status.tag === 'Ok') {
         storeRevision = status.value.revision;
+        storeState = status.value.persistenceState || 'Memory';
     }
 
     return {
@@ -275,6 +281,28 @@ export function diagnosticsSnapshot() {
         registeredKeys: registeredKeys,
         entries: entries,
         storeRevision: storeRevision,
+        storeState: storeState,
         planLifecycle: state ? state.planLifecycle.tag : 'Unknown'
+    };
+}
+
+// Host-side page tests load the same page modules without a Lite ViewModel,
+// so there is no platform getApp() function.  Expose a tiny compatibility
+// facade only when a global object exists; deployed pages prefer the real
+// application object returned by getApp().  This keeps the deploy source free
+// of local imports while preserving deterministic host coverage.
+const globalObject = typeof globalThis !== 'undefined'
+    ? globalThis
+    : (typeof global !== 'undefined' ? global : null);
+if (globalObject) {
+    globalObject.__MOVE25_HOST_RUNTIME__ = {
+        isReady: isReady,
+        getModel: getModel,
+        getState: getState,
+        refresh: refresh,
+        dispatch: dispatch,
+        navigateTo: navigateTo,
+        diagnosticsSnapshot: diagnosticsSnapshot,
+        start: function () {}
     };
 }

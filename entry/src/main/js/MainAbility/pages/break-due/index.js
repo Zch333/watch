@@ -1,5 +1,36 @@
-import { dispatch, refresh, navigateTo } from '../_app-shell.js';
-import { actionLabels, firstErrorText } from '../mvu/labels.js';
+function runtime() {
+    var globalObject = typeof globalThis !== 'undefined'
+        ? globalThis
+        : (typeof global !== 'undefined' ? global : null);
+    if (globalObject && globalObject.__MOVE25_LITE_RUNTIME__) {
+        var liteApp = globalObject.__MOVE25_LITE_RUNTIME__;
+        if (liteApp && typeof liteApp.start === 'function') {
+            liteApp.start();
+        }
+        return liteApp;
+    }
+    if (typeof getApp !== 'function') {
+        if (globalObject && globalObject.__MOVE25_HOST_RUNTIME__) {
+            return globalObject.__MOVE25_HOST_RUNTIME__;
+        }
+        return null;
+    }
+    try {
+        var app = getApp();
+        if (app && app.start) {
+            app.start();
+        }
+        return app;
+    } catch (error) {
+        return null;
+    }
+}
+
+function errorText(model) {
+    var errors = model && model.errors ? model.errors : [];
+    var error = errors.length > 0 ? errors[errors.length - 1] : null;
+    return error ? (error.text || error.code || '操作失败') : '操作失败';
+}
 
 export default {
     data: {
@@ -8,36 +39,69 @@ export default {
         hasError: false,
         errorText: ''
     },
-    onShow() {
-        // Re-entering the page clears the stale notice, like the more page.
+    onInit() {
         this.hasError = false;
         this.errorText = '';
-        this.render();
+        this.syncModel();
+    },
+    onReady() {
+        this.syncModel();
+    },
+    onShow() {
+        this.hasError = false;
+        this.errorText = '';
+        this.syncModel();
+    },
+    syncModel() {
+        var app = runtime();
+        if (!app || !app.isReady()) {
+            return;
+        }
+        var model = app.refresh();
+        this.reminderKey = model.dueReminderKey || '';
+        this.actions = model.currentGuidance ? model.currentGuidance.actions : [];
     },
     render() {
-        const model = refresh();
-        this.reminderKey = model.dueReminderKey || '';
-        this.actions = actionLabels(model.currentGuidance ? model.currentGuidance.actions : []);
+        this.syncModel();
     },
-    /**
-     * A failed start/skip must be visible: the HML error element is bound to
-     * hasError/errorText (P2-02). On success the decision's Navigate effect
-     * routes to break-active / home.
-     */
-    afterAction(nextModel) {
-        if ((nextModel.errors || []).length === 0) {
+    afterAction(model) {
+        if (!model || (model.errors || []).length === 0) {
             return;
         }
         this.hasError = true;
-        this.errorText = firstErrorText(nextModel.errors);
+        this.errorText = errorText(model);
     },
     onStart() {
-        this.afterAction(dispatch({ tag: 'StartDuePressed', reminderKey: this.reminderKey }));
+        var app = runtime();
+        if (!app || !app.isReady()) {
+            this.hasError = true;
+            this.errorText = '应用仍在初始化，请稍候';
+            return;
+        }
+        this.afterAction(app.dispatch({
+            tag: 'StartDuePressed',
+            reminderKey: this.reminderKey
+        }));
+        if (!this.hasError && typeof app.navigateTo === 'function') {
+            app.navigateTo('break-active');
+        }
     },
     onSkip() {
-        this.afterAction(dispatch({ tag: 'SkipBreakPressed' }));
+        var app = runtime();
+        if (!app || !app.isReady()) {
+            this.hasError = true;
+            this.errorText = '应用仍在初始化，请稍候';
+            return;
+        }
+        this.afterAction(app.dispatch({ tag: 'SkipBreakPressed' }));
+        if (!this.hasError && typeof app.navigateTo === 'function') {
+            app.navigateTo('home');
+        }
     },
     onHome() {
-        navigateTo('home');
+        var app = runtime();
+        if (app) {
+            app.navigateTo('home');
+        }
     }
 };
