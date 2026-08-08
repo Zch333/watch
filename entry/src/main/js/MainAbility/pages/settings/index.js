@@ -112,13 +112,16 @@ export default {
         rhythmBg3: CHIP_OFF_BG,
         rhythmFg3: CHIP_OFF_FG,
         selectedBlock: 0,
-        selectedRhythm: 1,
+        selectedRhythm: 0,
         enabledFlag: false,
         // Custom (non-preset) values read when the page opened. Saving
         // without touching anything must preserve them exactly.
         originalBlocks: [],
         originalFocusMinutes: 25,
         originalBreakMinutes: 5,
+        weekdaySummary: '',
+        blockSummary: '',
+        rhythmSummary: '',
         hasError: false,
         errorText: ''
     },
@@ -157,6 +160,7 @@ export default {
             this['weekdayBg' + index] = on[index] ? CHIP_ON_BG : CHIP_OFF_BG;
             this['weekdayFg' + index] = on[index] ? CHIP_ON_FG : CHIP_OFF_FG;
         }
+        this.weekdaySummary = this.selectedWeekdayText(on);
 
         // Keep the exact current values around for an untouched save.
         this.originalBlocks = (summary.rawBlocks || []).map(function (block) {
@@ -177,6 +181,10 @@ export default {
             this['rhythmBg' + index] = index === rhythmIndex ? CHIP_ON_BG : CHIP_OFF_BG;
             this['rhythmFg' + index] = index === rhythmIndex ? CHIP_ON_FG : CHIP_OFF_FG;
         }
+        this.blockSummary = blockIndex >= 0 ? '当前：方案 ' + String(blockIndex + 1) : '当前：自定义时段';
+        this.rhythmSummary = rhythmIndex >= 0
+            ? '当前：' + String(RHYTHM_PRESETS[rhythmIndex].focus) + '/' + String(RHYTHM_PRESETS[rhythmIndex].break)
+            : '当前：自定义节律';
 
         this.enabledFlag = model.planStatus === 'Enabled' || model.planStatus === 'Paused';
         this.hasError = false;
@@ -188,21 +196,51 @@ export default {
         this.weekdayOn[index] = on;
         this['weekdayBg' + index] = on ? CHIP_ON_BG : CHIP_OFF_BG;
         this['weekdayFg' + index] = on ? CHIP_ON_FG : CHIP_OFF_FG;
+        this.weekdaySummary = this.selectedWeekdayText(this.weekdayOn);
     },
+    selectedWeekdayText(values) {
+        const labels = ['一', '二', '三', '四', '五', '六', '日'];
+        const selected = [];
+        for (let index = 0; index < labels.length; index += 1) {
+            if (values[index]) {
+                selected.push(labels[index]);
+            }
+        }
+        return selected.length > 0 ? '已选：' + selected.join('、') : '未选择工作日';
+    },
+    // Keep event expressions argument-free: the Lite HML evaluator supports
+    // named handlers consistently, while function-call expressions vary by
+    // previewer version.
+    onWeekday0() { this.onWeekdayTap(0); },
+    onWeekday1() { this.onWeekdayTap(1); },
+    onWeekday2() { this.onWeekdayTap(2); },
+    onWeekday3() { this.onWeekdayTap(3); },
+    onWeekday4() { this.onWeekdayTap(4); },
+    onWeekday5() { this.onWeekdayTap(5); },
+    onWeekday6() { this.onWeekdayTap(6); },
     onBlockTap(index) {
         this.selectedBlock = index;
         for (let current = 0; current < BLOCK_PRESETS.length; current += 1) {
             this['blockBg' + current] = current === index ? CHIP_ON_BG : CHIP_OFF_BG;
             this['blockFg' + current] = current === index ? CHIP_ON_FG : CHIP_OFF_FG;
         }
+        this.blockSummary = '已选：方案 ' + String(index + 1);
     },
+    onBlock0() { this.onBlockTap(0); },
+    onBlock1() { this.onBlockTap(1); },
+    onBlock2() { this.onBlockTap(2); },
     onRhythmTap(index) {
         this.selectedRhythm = index;
         for (let current = 0; current < RHYTHM_PRESETS.length; current += 1) {
             this['rhythmBg' + current] = current === index ? CHIP_ON_BG : CHIP_OFF_BG;
             this['rhythmFg' + current] = current === index ? CHIP_ON_FG : CHIP_OFF_FG;
         }
+        this.rhythmSummary = '已选：' + String(RHYTHM_PRESETS[index].focus) + '/' + String(RHYTHM_PRESETS[index].break);
     },
+    onRhythm0() { this.onRhythmTap(0); },
+    onRhythm1() { this.onRhythmTap(1); },
+    onRhythm2() { this.onRhythmTap(2); },
+    onRhythm3() { this.onRhythmTap(3); },
     onSave() {
         const app = runtime();
         if (!app || !app.isReady()) {

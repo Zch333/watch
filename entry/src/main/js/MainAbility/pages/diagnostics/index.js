@@ -33,7 +33,9 @@ export default {
         registeredCount: 0,
         storeRevision: 0,
         storeState: 'Unknown',
-        entries: []
+        entries: [],
+        entriesText: '',
+        hasEntries: false
     },
     onInit() {
         this.syncModel();
@@ -75,6 +77,8 @@ export default {
             lines.push(line);
         }
         this.entries = lines;
+        this.entriesText = lines.join('\n');
+        this.hasEntries = this.entriesText.length > 0;
     },
     render() {
         this.syncModel();

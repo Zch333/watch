@@ -16,6 +16,15 @@ export function createAppRuntime(ports) {
     return {
         ports: ports,
         handleCommand: handleCommand,
+        handleCommandAsync: typeof handleCommand.handleCommandAsync === 'function'
+            ? handleCommand.handleCommandAsync
+            : function (state, command, options, done) {
+                const result = handleCommand(state, command, options);
+                if (typeof done === 'function') {
+                    done(result);
+                }
+                return result;
+            },
 
         probeCapabilities: function () {
             return ports.reminders.probeCapabilities();

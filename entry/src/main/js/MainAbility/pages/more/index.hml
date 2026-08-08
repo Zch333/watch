@@ -1,21 +1,9 @@
 <div class="container">
     <text class="title">更多</text>
-    <list class="scroll">
-        <list-item class="item" onclick="onPauseToday">
-            <text class="label">暂停今天</text>
-        </list-item>
-        <list-item class="item" onclick="onPauseHour">
-            <text class="label">暂停一小时</text>
-        </list-item>
-        <list-item class="item" onclick="onSkipNext">
-            <text class="label">跳过下一次</text>
-        </list-item>
-        <list-item class="item" onclick="onSettings">
-            <text class="label">设置</text>
-        </list-item>
-        <list-item class="item" onclick="onDiagnostics">
-            <text class="label">诊断</text>
-        </list-item>
-    </list>
+    <input type="button" class="item" value="暂停今天" onclick="onPauseToday"></input>
+    <input type="button" class="item" value="暂停一小时" onclick="onPauseHour"></input>
+    <input type="button" class="item" value="跳过下一次" onclick="onSkipNext"></input>
+    <input type="button" class="item" value="设置" onclick="onSettings"></input>
+    <input type="button" class="item" value="诊断" onclick="onDiagnostics"></input>
     <text class="error" show="{{hasError}}">{{errorText}}</text>
 </div>

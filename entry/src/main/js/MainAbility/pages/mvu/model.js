@@ -1,5 +1,6 @@
 import { buildDesiredPlanForState } from '../../domain/decide.js';
 import { guidanceAt, guidanceCount } from '../../domain/guidance.js';
+import { actionLabels } from './labels.js';
 
 /**
  * MVU model projection: domain state + facts -> UiModel.
@@ -64,7 +65,10 @@ function guidanceFor(session, guidanceIndex) {
         for (let index = 0; index < guidanceCount(); index += 1) {
             const item = guidanceAt(index);
             if (item.id === session.guidanceId) {
-                return Object.freeze({ id: item.id, actions: item.actions });
+                return Object.freeze({
+                    id: item.id,
+                    actions: Object.freeze(actionLabels(item.actions))
+                });
             }
         }
         return null;
@@ -74,7 +78,10 @@ function guidanceFor(session, guidanceIndex) {
         // startActiveBreak selects guidanceAt(state.guidanceIndex). Projecting
         // guidanceAt(0) here would show one suggestion and run another.
         const item = guidanceAt(guidanceIndex);
-        return Object.freeze({ id: item.id, actions: item.actions });
+        return Object.freeze({
+            id: item.id,
+            actions: Object.freeze(actionLabels(item.actions))
+        });
     }
     return null;
 }

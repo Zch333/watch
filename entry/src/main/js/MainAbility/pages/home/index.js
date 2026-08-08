@@ -73,6 +73,7 @@ export default {
         planStatusText: '未知',
         nextBreak: '—',
         canSchedule: false,
+        showScheduleHint: true,
         toggleText: '启用计划',
         hasError: false,
         errorText: ''
@@ -136,6 +137,7 @@ export default {
             this.planStatusText = '初始化中';
             this.nextBreak = '—';
             this.canSchedule = false;
+            this.showScheduleHint = true;
             this.toggleText = '启用计划';
             // Keep a concrete startup failure visible instead of silently
             // presenting an endless loading state.
@@ -152,6 +154,7 @@ export default {
         this.planStatusText = statusText(model.planStatus);
         this.nextBreak = model.nextBreakText || '—';
         this.canSchedule = !!model.canSchedule;
+        this.showScheduleHint = !this.canSchedule;
         this.toggleText = model.planStatus === 'Enabled' || model.planStatus === 'Paused'
             ? '关闭计划'
             : '启用计划';
@@ -168,14 +171,27 @@ export default {
     },
     onStartNow() {
         var app = runtime();
-        if (!app || !app.isReady()) {
+        if (!app || typeof app.isReady !== 'function' || !app.isReady() ||
+            typeof app.dispatch !== 'function') {
             this.errorText = '应用仍在初始化，请稍候';
             this.hasError = true;
             return;
         }
-        var model = app.dispatch({ tag: 'StartNowPressed' });
+        var model;
+        try {
+            model = app.dispatch({ tag: 'StartNowPressed' });
+        } catch (error) {
+            this.errorText = '无法开始活动';
+            this.hasError = true;
+            return;
+        }
         if ((model.errors || []).length > 0) {
             this.syncModel();
+            return;
+        }
+        if (typeof app.navigateTo !== 'function') {
+            this.errorText = '应用导航不可用';
+            this.hasError = true;
             return;
         }
         var result = app.navigateTo('break-active');
@@ -203,8 +219,20 @@ export default {
     },
     onMore() {
         var app = runtime();
-        if (app && app.navigateTo) {
-            app.navigateTo('more');
+        if (!app || typeof app.navigateTo !== 'function') {
+            this.hasError = true;
+            this.errorText = '应用导航不可用';
+            return;
+        }
+        try {
+            var result = app.navigateTo('more');
+            if (result && result.tag === 'Err') {
+                this.hasError = true;
+                this.errorText = '无法打开更多页面';
+            }
+        } catch (error) {
+            this.hasError = true;
+            this.errorText = '无法打开更多页面';
         }
     }
 };

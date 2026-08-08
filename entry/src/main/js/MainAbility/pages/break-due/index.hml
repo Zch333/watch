@@ -1,8 +1,8 @@
 <div class="container">
     <text class="title">该活动了</text>
     <text class="hint">站起来走动，简单伸展，看向远处放松眼睛</text>
-    <text class="action" for="{{actions}}">{{$item}}</text>
-    <text class="error" if="{{hasError}}">{{errorText}}</text>
+    <text class="action" show="{{hasGuidance}}">{{guidanceText}}</text>
+    <text class="error" show="{{hasError}}">{{errorText}}</text>
     <input type="button" class="btn-primary" value="开始 5 分钟" onclick="onStart"></input>
     <input type="button" class="btn" value="跳过" onclick="onSkip"></input>
     <input type="button" class="btn" value="返回首页" onclick="onHome"></input>

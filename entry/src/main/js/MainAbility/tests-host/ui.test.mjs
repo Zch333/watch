@@ -82,7 +82,7 @@ test('mvu: active session projects remaining seconds from endsAt', () => {
     const model = projectModel(active, factsFor(at(2026, 8, 6, 628), 628));
     assert.equal(model.breakStatus, 'Active');
     assert.equal(model.remainingSeconds, 120);
-    assert.deepEqual(model.currentGuidance.actions, ['stand_and_walk', 'simple_stretch', 'look_far']);
+    assert.deepEqual(model.currentGuidance.actions, ['站起来走动', '简单伸展', '看向远处放松眼睛']);
 });
 
 test('mvu: finished session projects the outcome', () => {

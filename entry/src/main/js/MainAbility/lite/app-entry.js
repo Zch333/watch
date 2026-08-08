@@ -69,7 +69,10 @@ const app = {
     },
     start: start,
     isReady() {
-        return ready && shellIsReady();
+        // Boot may finish its final durable commits asynchronously after
+        // initDeviceApp returns. Read the shell's live readiness rather than
+        // caching the first (usually false) value here.
+        return shellIsReady();
     },
     startError() {
         return startError;

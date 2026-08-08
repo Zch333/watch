@@ -21,72 +21,188 @@ function decode(raw) {
     }
 }
 
-function createLoadedStore(initial, initialError) {
+function errorCode(initialError) {
+    if (initialError && typeof initialError.code === 'string') {
+        return initialError.code;
+    }
+    return STORE_ERROR_CODES.STORAGE_UNAVAILABLE;
+}
+
+function errorMessage(error) {
+    if (!error) {
+        return 'Persistent storage is unavailable';
+    }
+    if (error.message) {
+        return String(error.message);
+    }
+    return String(error);
+}
+
+/**
+ * Build a store after the initial native read has settled.
+ *
+ * `saveSnapshotAsync` is the only production write path. The committed
+ * snapshot and revision move forward inside the native success callback, never
+ * when storage.set merely accepts a request. The two-argument saveSnapshot is
+ * intentionally an explicit error for this adapter so a synchronous caller
+ * cannot accidentally claim durability.
+ */
+export function createLoadedStore(initial, initialError, storageApi) {
     let stored = initial;
     let revision = initial && typeof initial.revision === 'number' ? initial.revision : 0;
     let persistenceState = initialError ? 'Unavailable' : 'Ready';
     let persistenceError = initialError || null;
+    let pending = false;
+    const nativeStorage = storageApi || storage;
+
+    function loadResult() {
+        if (initialError) {
+            return err(storeError(errorCode(initialError), initialError));
+        }
+        return ok(stored === undefined ? none() : some(stored));
+    }
+
+    function invoke(done, result) {
+        if (typeof done === 'function') {
+            done(result);
+        }
+        return result;
+    }
+
+    function saveSnapshotAsync(expectedRevision, snapshot, done) {
+        if (typeof done !== 'function') {
+            return err(storeError(STORE_ERROR_CODES.ASYNC_REQUIRED, {
+                operation: 'saveSnapshotAsync',
+                reason: 'callback_required'
+            }));
+        }
+        if (initialError) {
+            return invoke(done, err(storeError(errorCode(initialError), initialError)));
+        }
+        if (pending) {
+            return invoke(done, err(storeError(STORE_ERROR_CODES.PERSISTENCE_PENDING, {
+                currentRevision: revision
+            })));
+        }
+        if (expectedRevision !== revision) {
+            return invoke(done, err(storeError(STORE_ERROR_CODES.CONCURRENT_MODIFICATION, {
+                expected: expectedRevision,
+                current: revision
+            })));
+        }
+
+        let encoded;
+        try {
+            encoded = JSON.stringify(snapshot);
+        } catch (error) {
+            persistenceState = 'Failed';
+            persistenceError = error && error.message ? error.message : String(error);
+            return invoke(done, err(storeError(STORE_ERROR_CODES.IO_FAILURE,
+                persistenceError)));
+        }
+
+        if (!nativeStorage || typeof nativeStorage.set !== 'function') {
+            persistenceState = 'Unavailable';
+            persistenceError = { code: STORE_ERROR_CODES.STORAGE_UNAVAILABLE };
+            return invoke(done, err(storeError(STORE_ERROR_CODES.STORAGE_UNAVAILABLE,
+                persistenceError)));
+        }
+
+        pending = true;
+        persistenceState = 'Pending';
+        let settled = false;
+        const finish = function (result, nextState, nextError) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            pending = false;
+            persistenceState = nextState;
+            persistenceError = nextError || null;
+            invoke(done, result);
+        };
+
+        try {
+            nativeStorage.set({
+                key: SNAPSHOT_KEY,
+                value: encoded,
+                success: function () {
+                    // Native success is the durability boundary.
+                    stored = snapshot;
+                    revision = snapshot.revision;
+                    finish(ok(Object.freeze({
+                        tag: 'Revision',
+                        value: revision
+                    })), 'Ready', null);
+                },
+                fail: function (message, code) {
+                    const details = { message: message, code: code };
+                    finish(err(storeError(STORE_ERROR_CODES.IO_FAILURE, details)),
+                        'Failed', details);
+                }
+            });
+        } catch (error) {
+            const details = {
+                message: error && error.message ? error.message : String(error)
+            };
+            finish(err(storeError(STORE_ERROR_CODES.IO_FAILURE, details)),
+                'Failed', details);
+        }
+        return Object.freeze({
+            tag: 'Pending',
+            expectedRevision: expectedRevision,
+            revision: snapshot && snapshot.revision
+        });
+    }
+
+    function saveSnapshot(expectedRevision, snapshot, done) {
+        // A callback supplied by an adapter-aware caller is an explicit opt-in
+        // to the v2 contract; normal synchronous callers receive a hard error.
+        if (typeof done === 'function') {
+            return saveSnapshotAsync(expectedRevision, snapshot, done);
+        }
+        return err(storeError(STORE_ERROR_CODES.ASYNC_REQUIRED, {
+            operation: 'saveSnapshot',
+            reason: 'system.storage.set is callback based'
+        }));
+    }
 
     return {
-        loadSnapshot() {
-            return ok(stored === undefined ? none() : some(stored));
+        asyncOnly: true,
+        loadSnapshot: function (done) {
+            return invoke(done, loadResult());
         },
-
-        saveSnapshot(expectedRevision, snapshot) {
-            if (expectedRevision !== revision) {
-                return err(storeError(STORE_ERROR_CODES.CONCURRENT_MODIFICATION, {
-                    expected: expectedRevision,
-                    current: revision
-                }));
-            }
-            let encoded;
-            try {
-                encoded = JSON.stringify(snapshot);
-                persistenceState = 'Pending';
-                storage.set({
-                    key: SNAPSHOT_KEY,
-                    value: encoded,
-                    success: function () {
-                        persistenceState = 'Ready';
-                        persistenceError = null;
-                    },
-                    fail: function (message, code) {
-                        persistenceState = 'Failed';
-                        persistenceError = { message: message, code: code };
-                        console.error('[Move25] snapshot persistence failed: ' + code + ' ' + message);
-                    }
-                });
-            } catch (error) {
-                persistenceState = 'Failed';
-                persistenceError = error && error.message ? error.message : String(error);
-                return err(storeError(STORE_ERROR_CODES.IO_FAILURE,
-                    persistenceError));
-            }
-            // The Lite storage API acknowledges completion asynchronously.
-            // The in-process cache is committed after the native request was
-            // accepted; callback failures remain visible through readStatus.
-            stored = snapshot;
-            revision = snapshot.revision;
-            return ok(Object.freeze({ tag: 'Revision', value: revision }));
+        loadSnapshotAsync: function (done) {
+            return invoke(done, loadResult());
         },
-
-        readStatus() {
+        saveSnapshot: saveSnapshot,
+        saveSnapshotAsync: saveSnapshotAsync,
+        readStatus: function () {
             return ok(Object.freeze({
                 tag: 'StoreStatus',
                 revision: revision,
                 hasSnapshot: stored !== undefined,
                 persistenceState: persistenceState,
-                persistenceError: persistenceError
+                persistenceError: persistenceError,
+                pending: pending
             }));
         }
     };
 }
 
 /**
- * Load the persistent snapshot before constructing the synchronous runtime.
- * The callback is invoked exactly once, including platform failure paths.
+ * Load the persistent snapshot before constructing the runtime.
+ *
+ * There is no silent memory/default fallback. If the platform API fails or
+ * never calls back, the callback receives an unavailable store after the
+ * explicit timeout; the shell can show that persistence is unavailable and
+ * must not present the default state as if it came from disk.
  */
-export function openSystemStore(onReady) {
+export function openSystemStore(onReady, options) {
+    const opts = options || {};
+    const timeoutMs = typeof opts.timeoutMs === 'number' && opts.timeoutMs >= 0
+        ? opts.timeoutMs
+        : 3000;
     let completed = false;
     let fallbackTimer = -1;
     const finish = function (store) {
@@ -94,37 +210,50 @@ export function openSystemStore(onReady) {
             return;
         }
         completed = true;
-        if (fallbackTimer >= 0) {
+        if (fallbackTimer >= 0 && typeof clearTimeout === 'function') {
             clearTimeout(fallbackTimer);
             fallbackTimer = -1;
         }
         onReady(store);
     };
+
+    if (!storage || typeof storage.get !== 'function') {
+        finish(createLoadedStore(undefined, {
+            message: 'system.storage.get is unavailable',
+            code: STORE_ERROR_CODES.STORAGE_UNAVAILABLE
+        }, storage));
+        return;
+    }
+
     try {
         storage.get({
             key: SNAPSHOT_KEY,
             default: '',
             success: function (data) {
-                finish(createLoadedStore(decode(data), null));
+                finish(createLoadedStore(decode(data), null, storage));
             },
             fail: function (message, code) {
                 console.error('[Move25] snapshot load failed: ' + code + ' ' + message);
-                finish(createLoadedStore(undefined, { message: message, code: code }));
+                finish(createLoadedStore(undefined, {
+                    message: message,
+                    code: code || STORE_ERROR_CODES.STORAGE_UNAVAILABLE
+                }, storage));
             }
         });
-        // A few Lite previewer revisions expose system.storage.get but never
-        // invoke either callback.  Do not leave the whole app on its loading
-        // screen forever; initialize an explicit in-memory fallback instead.
-        fallbackTimer = setTimeout(function () {
-            finish(createLoadedStore(undefined, {
-                message: 'system.storage callback timeout',
-                code: 'STORAGE_CALLBACK_TIMEOUT'
-            }));
-        }, 500);
     } catch (error) {
         finish(createLoadedStore(undefined, {
             message: error && error.message ? error.message : String(error),
-            code: 'STORAGE_UNAVAILABLE'
-        }));
+            code: STORE_ERROR_CODES.STORAGE_UNAVAILABLE
+        }, storage));
+        return;
+    }
+
+    if (typeof setTimeout === 'function') {
+        fallbackTimer = setTimeout(function () {
+            finish(createLoadedStore(undefined, {
+                message: 'Persistent storage did not respond within ' + timeoutMs + 'ms',
+                code: STORE_ERROR_CODES.STORAGE_TIMEOUT
+            }, storage));
+        }, timeoutMs);
     }
 }

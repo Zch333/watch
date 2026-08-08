@@ -38,6 +38,32 @@ function fullAdapterSet() {
     };
 }
 
+function delayedStore() {
+    const base = createMemoryStore();
+    let pending = null;
+    return Object.assign({}, base, {
+        asyncOnly: true,
+        saveSnapshotAsync(expectedRevision, snapshot, done) {
+            pending = {
+                expectedRevision: expectedRevision,
+                snapshot: snapshot,
+                done: done
+            };
+            return Object.freeze({
+                tag: 'Pending',
+                expectedRevision: expectedRevision,
+                revision: snapshot.revision
+            });
+        },
+        flush() {
+            assert.ok(pending);
+            const next = pending;
+            pending = null;
+            next.done(base.saveSnapshot(next.expectedRevision, next.snapshot));
+        }
+    });
+}
+
 test('runtime/fixed-clock: creation without a valid Instant fails fast', () => {
     assert.throws(function () {
         createFixedClock(undefined);
@@ -109,6 +135,31 @@ test('runtime/app-runtime: boots from injected ports without knowing their origi
     assert.equal(boot.tag, 'Ok');
     assert.equal(typeof app.handleCommand, 'function');
     assert.equal(app.ports, ports);
+});
+
+test('runtime/store v2: async command does not expose an uncommitted state', () => {
+    const store = delayedStore();
+    const ports = Object.assign({}, fullAdapterSet(), { store: store });
+    const app = createAppRuntime(ports);
+    const boot = app.boot();
+    assert.equal(boot.tag, 'Ok');
+    const settled = [];
+    const pending = app.handleCommandAsync(
+        boot.state,
+        { tag: 'StartBreakNow' },
+        undefined,
+        function (result) {
+            settled.push(result);
+        }
+    );
+    assert.equal(pending.tag, 'Pending');
+    assert.equal(settled.length, 0);
+    assert.equal(store.loadSnapshot().value.tag, 'None');
+    store.flush();
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].tag, 'Ok');
+    assert.equal(settled[0].state.breakSession.tag, 'Active');
+    assert.equal(store.loadSnapshot().value.value.revision, settled[0].state.revision);
 });
 
 test('runtime/shell: a malformed clock value is rejected at the shell boundary', () => {

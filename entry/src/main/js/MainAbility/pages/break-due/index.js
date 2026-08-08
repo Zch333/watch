@@ -35,7 +35,8 @@ function errorText(model) {
 export default {
     data: {
         reminderKey: '',
-        actions: [],
+        guidanceText: '',
+        hasGuidance: false,
         hasError: false,
         errorText: ''
     },
@@ -59,7 +60,9 @@ export default {
         }
         var model = app.refresh();
         this.reminderKey = model.dueReminderKey || '';
-        this.actions = model.currentGuidance ? model.currentGuidance.actions : [];
+        var actions = model.currentGuidance ? model.currentGuidance.actions : [];
+        this.guidanceText = actions && actions.length > 0 ? String(actions[0]) : '';
+        this.hasGuidance = this.guidanceText.length > 0;
     },
     render() {
         this.syncModel();

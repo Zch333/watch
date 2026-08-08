@@ -65,8 +65,11 @@ function cancelVisibleTimer(timerId) {
 export default {
     data: {
         remainingText: '05:00',
-        actions: [],
+        guidanceText: '',
+        hasGuidance: false,
         finished: false,
+        showActiveControls: true,
+        showFinished: false,
         hasError: false,
         errorText: ''
     },
@@ -76,9 +79,11 @@ export default {
     onInit() {
         this.elapsedDispatched = false;
         this.syncModel();
+        this.startVisibleTicker();
     },
     onReady() {
         this.syncModel();
+        this.startVisibleTicker();
     },
     onShow() {
         this.elapsedDispatched = false;
@@ -100,8 +105,12 @@ export default {
         }
         var model = app.refresh();
         this.remainingText = formatSeconds(model.remainingSeconds);
-        this.actions = model.currentGuidance ? model.currentGuidance.actions : [];
+        var actions = model.currentGuidance ? model.currentGuidance.actions : [];
+        this.guidanceText = actions && actions.length > 0 ? String(actions[0]) : '';
+        this.hasGuidance = this.guidanceText.length > 0;
         this.finished = model.breakStatus === 'Finished';
+        this.showActiveControls = !this.finished;
+        this.showFinished = this.finished;
     },
     render() {
         this.syncModel();
@@ -117,8 +126,12 @@ export default {
             }
             var model = app.refresh();
             self.remainingText = formatSeconds(model.remainingSeconds);
-            self.actions = model.currentGuidance ? model.currentGuidance.actions : [];
+            var actions = model.currentGuidance ? model.currentGuidance.actions : [];
+            self.guidanceText = actions && actions.length > 0 ? String(actions[0]) : '';
+            self.hasGuidance = self.guidanceText.length > 0;
             self.finished = model.breakStatus === 'Finished';
+            self.showActiveControls = !self.finished;
+            self.showFinished = self.finished;
             if (self.elapsedDispatched) {
                 return;
             }

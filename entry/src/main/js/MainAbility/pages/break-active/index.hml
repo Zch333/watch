@@ -1,10 +1,10 @@
 <div class="container">
-    <text class="title" if="{{!finished}}">活动进行中</text>
-    <text class="title" if="{{finished}}">活动已结束</text>
+    <text class="title" show="{{showActiveControls}}">活动进行中</text>
+    <text class="title" show="{{showFinished}}">活动已结束</text>
     <text class="countdown">{{remainingText}}</text>
-    <text class="action" for="{{actions}}">{{$item}}</text>
-    <text class="error" if="{{hasError}}">{{errorText}}</text>
-    <input type="button" class="btn-primary" value="提前完成" if="{{!finished}}" onclick="onComplete"></input>
-    <input type="button" class="btn" value="跳过" if="{{!finished}}" onclick="onSkip"></input>
+    <text class="action" show="{{hasGuidance}}">{{guidanceText}}</text>
+    <text class="error" show="{{hasError}}">{{errorText}}</text>
+    <input type="button" class="btn-primary" value="提前完成" show="{{showActiveControls}}" onclick="onComplete"></input>
+    <input type="button" class="btn" value="跳过" show="{{showActiveControls}}" onclick="onSkip"></input>
     <input type="button" class="btn" value="返回首页" onclick="onHome"></input>
 </div>

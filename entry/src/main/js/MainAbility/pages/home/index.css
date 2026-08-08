@@ -45,5 +45,11 @@
   color: #ffffff;
 }
 .btn-primary {
+  width: 240px;
+  height: 48px;
+  margin-top: 10px;
+  font-size: 20px;
   background-color: #0a59f7;
+  color: #ffffff;
+  border-radius: 24px;
 }

@@ -56,6 +56,19 @@ test('contract/store: concurrent modification is rejected, IO failure surfaces',
     assert.equal(store.loadSnapshot().value.value.revision, snapshot.revision);
 });
 
+test('contract/store v2: callback save commits through the same contract', () => {
+    const store = createMemoryStore();
+    const snapshot = createSnapshot(initialDomainState());
+    const settled = [];
+    const returned = store.saveSnapshotAsync(0, snapshot, function (result) {
+        settled.push(result);
+    });
+    assert.equal(returned.tag, 'Ok');
+    assert.equal(settled.length, 1);
+    assert.equal(settled[0].tag, 'Ok');
+    assert.equal(store.readStatus().value.revision, snapshot.revision);
+});
+
 test('contract/clock: fixed clock returns the configured instant and advances', () => {
     const start = instant(12345).value;
     const clock = createFixedClock(start);

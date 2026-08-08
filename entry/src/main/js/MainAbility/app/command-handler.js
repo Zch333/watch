@@ -5,6 +5,7 @@ import { err, ok } from '../domain/result.js';
 import { settlePlanLifecycle } from '../domain/settle.js';
 import { createSnapshot } from '../domain/snapshot.js';
 import { interpretEffect } from './effect-interpreter.js';
+import { STORE_ERROR_CODES, storeError } from '../ports/store-port.js';
 
 export const REMINDER_NAMESPACE = 'move25';
 const DEFAULT_HORIZON_DAYS = 3;
@@ -98,7 +99,7 @@ export function createCommandHandler(ports) {
         });
     }
 
-    return function handleCommand(state, command, options) {
+    const handleCommand = function (state, command, options) {
         const opts = options || {};
 
         const clockResult = ports.clock.now();
@@ -268,7 +269,93 @@ export function createCommandHandler(ports) {
         //    must leave both in-memory and stored revisions untouched.
         const committedRevision = state.revision;
         if (candidateState.revision !== committedRevision) {
-            const persist = ports.store.saveSnapshot(committedRevision, createSnapshot(candidateState));
+            const snapshot = createSnapshot(candidateState);
+            if (typeof ports.store.saveSnapshotAsync === 'function' &&
+                (ports.store.asyncOnly === true || typeof opts.onPersistPending === 'function')) {
+                if (typeof opts.onPersistPending !== 'function') {
+                    const unavailable = storeError(STORE_ERROR_CODES.ASYNC_REQUIRED, {
+                        operation: 'saveSnapshot',
+                        reason: 'imperative shell callback required'
+                    });
+                    results.push(Object.freeze({
+                        effectTag: 'PersistSnapshot',
+                        result: { tag: 'Err', error: unavailable }
+                    }));
+                    return commandFailed(
+                        unavailable,
+                        state,
+                        decision,
+                        results,
+                        facts,
+                        candidateState
+                    );
+                }
+
+                const pendingResult = Object.freeze({
+                    tag: 'Pending',
+                    expectedRevision: committedRevision,
+                    revision: candidateState.revision
+                });
+                results.push(Object.freeze({
+                    effectTag: 'PersistSnapshot',
+                    result: pendingResult
+                }));
+                const finishPersist = function (persist) {
+                    const settledResults = results.slice();
+                    settledResults[settledResults.length - 1] = Object.freeze({
+                        effectTag: 'PersistSnapshot',
+                        result: persist
+                    });
+                    if (persist.tag === 'Err') {
+                        ports.diagnostics.append(Object.freeze({
+                            tag: 'EffectFailed',
+                            effect: 'PersistSnapshot',
+                            code: persist.error.code,
+                            at: now
+                        }));
+                        opts.onPersistPending(commandFailed(
+                            persist.error,
+                            state,
+                            decision,
+                            settledResults,
+                            facts,
+                            candidateState
+                        ));
+                        return;
+                    }
+                    opts.onPersistPending({
+                        tag: 'Ok',
+                        state: candidateState,
+                        decision: decision,
+                        appliedEvents: events,
+                        results: settledResults,
+                        facts: facts
+                    });
+                };
+                try {
+                    ports.store.saveSnapshotAsync(
+                        committedRevision,
+                        snapshot,
+                        finishPersist
+                    );
+                } catch (error) {
+                    finishPersist({
+                        tag: 'Err',
+                        error: storeError(STORE_ERROR_CODES.IO_FAILURE,
+                            error && error.message ? error.message : String(error))
+                    });
+                }
+                return Object.freeze({
+                    tag: 'Pending',
+                    state: state,
+                    candidateState: candidateState,
+                    decision: decision,
+                    results: results,
+                    facts: facts
+                });
+            }
+
+            const persist = ports.store.saveSnapshot(committedRevision, snapshot);
             results.push(Object.freeze({ effectTag: 'PersistSnapshot', result: persist }));
             if (persist.tag === 'Err') {
                 ports.diagnostics.append(Object.freeze({
@@ -297,4 +384,42 @@ export function createCommandHandler(ports) {
             facts: facts
         };
     };
+
+    /**
+     * Imperative-shell entry point for callback based stores. The pure/domain
+     * work and all platform effects still run in handleCommand; only the final
+     * durable commit is resumed from the adapter callback.
+     */
+    handleCommand.handleCommandAsync = function (state, command, options, done) {
+        const callback = typeof done === 'function' ? done : function () {};
+        let settled = false;
+        const finish = function (result) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            callback(result);
+        };
+        const opts = Object.assign({}, options || {}, {
+            onPersistPending: finish
+        });
+        let result;
+        try {
+            result = handleCommand(state, command, opts);
+        } catch (error) {
+            finish({
+                tag: 'Err',
+                error: storeError(STORE_ERROR_CODES.IO_FAILURE,
+                    error && error.message ? error.message : String(error)),
+                state: state
+            });
+            return { tag: 'Err', error: error, state: state };
+        }
+        if (result.tag !== 'Pending') {
+            finish(result);
+        }
+        return result;
+    };
+
+    return handleCommand;
 }

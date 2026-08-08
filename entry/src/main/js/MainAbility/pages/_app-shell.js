@@ -20,13 +20,73 @@ import { update as pureUpdate } from './mvu/update.js';
 let app = null;
 let state = null;
 let model = initialUiModel();
+let bootComplete = false;
+let pendingCommand = false;
+let pendingTemporalPersist = false;
+
+function appendModelError(text, code) {
+    model = Object.freeze(Object.assign({}, model, {
+        errors: Object.freeze(model.errors.concat([{
+            text: text,
+            code: code
+        }]))
+    }));
+}
+
+function executeCommand(instance, baseState, command, done) {
+    let settled = false;
+    const finish = function (result) {
+        if (settled) {
+            return;
+        }
+        settled = true;
+        done(result);
+    };
+    try {
+        if (typeof instance.handleCommandAsync === 'function') {
+            const immediate = instance.handleCommandAsync(
+                baseState,
+                command,
+                undefined,
+                finish
+            );
+            if (immediate && immediate.tag !== 'Pending') {
+                finish(immediate);
+            }
+            return immediate;
+        }
+        const result = instance.handleCommand(baseState, command);
+        finish(result);
+        return result;
+    } catch (error) {
+        const result = {
+            tag: 'Err',
+            error: {
+                code: 'COMMAND_FAILED',
+                details: error && error.message ? error.message : String(error)
+            },
+            state: baseState
+        };
+        finish(result);
+        return result;
+    }
+}
 
 function bootApp(instance) {
+    bootComplete = false;
+    pendingCommand = false;
+    pendingTemporalPersist = false;
     const bootResult = instance.boot();
     if (bootResult.tag === 'Err') {
+        const unavailable = bootResult.error && (
+            bootResult.error.code === 'STORAGE_UNAVAILABLE' ||
+            bootResult.error.code === 'STORAGE_TIMEOUT'
+        );
         model = Object.freeze(Object.assign({}, initialUiModel(), {
             errors: Object.freeze([{
-                text: '快照损坏或无法读取',
+                text: unavailable
+                    ? '本地存储暂不可用，无法恢复设置'
+                    : '快照损坏或无法读取',
                 code: bootResult.error.code
             }])
         }));
@@ -40,38 +100,13 @@ function bootApp(instance) {
     const bootErrors = [];
 
     // Observe capability through the reminder port (Unknown until a probe confirms).
-    const probe = instance.probeCapabilities();
-    if (probe.tag === 'Ok') {
-        const result = instance.handleCommand(booted, observeCapability(probe.value));
-        if (result.tag === 'Ok') {
-            state = result.state;
-        } else {
-            bootErrors.push({
-                text: '能力状态保存失败',
-                code: result.error && result.error.code
-            });
+    const finishReconcile = function (reconciled) {
+        if (reconciled.tag === 'Ok') {
+            state = reconciled.state;
+            bootComplete = true;
+            model = projectModel(state, reconciled.facts, bootErrors);
+            return;
         }
-    } else {
-        // Probe failure must be visible, but it must not block reading the
-        // persisted state or reconciling the registry.
-        bootErrors.push({
-            text: '提醒能力探测失败',
-            code: probe.error && probe.error.code
-        });
-    }
-
-    // Startup reconciliation: every launch converges the system reminder
-    // registry with the persisted plan and the domain's desired plan.
-    // This is what makes restarts safe:
-    //   1. orphan reminders (left by a failed disable) are cleaned up;
-    //   2. missing registrations (Enabling) are re-registered and promoted;
-    //   3. timezone/time changes reschedule existing reminders;
-    //   4. expired sessions and pauses from the snapshot are reduced.
-    const reconciled = instance.handleCommand(state, reconcilePlan());
-    if (reconciled.tag === 'Ok') {
-        state = reconciled.state;
-        model = projectModel(state, reconciled.facts, bootErrors);
-    } else {
         bootErrors.push({
             text: '启动对账失败',
             code: reconciled.error && reconciled.error.code
@@ -79,11 +114,43 @@ function bootApp(instance) {
         model = Object.freeze(Object.assign({}, initialUiModel(), {
             errors: Object.freeze(bootErrors)
         }));
+    };
+
+    const startReconcile = function () {
+        // Startup reconciliation: every launch converges the system reminder
+        // registry with the persisted plan and the domain's desired plan.
+        executeCommand(instance, state, reconcilePlan(), finishReconcile);
+    };
+
+    const probe = instance.probeCapabilities();
+    if (probe.tag === 'Ok') {
+        executeCommand(instance, booted, observeCapability(probe.value), function (result) {
+            if (result.tag === 'Ok') {
+                state = result.state;
+            } else {
+                bootErrors.push({
+                    text: '能力状态保存失败',
+                    code: result.error && result.error.code
+                });
+            }
+            startReconcile();
+        });
+    } else {
+        // Probe failure must be visible, but it must not block reading the
+        // persisted state or reconciling the registry.
+        bootErrors.push({
+            text: '提醒能力探测失败',
+            code: probe.error && probe.error.code
+        });
+        startReconcile();
     }
     return state;
 }
 
 export function initApp(options) {
+    bootComplete = false;
+    pendingCommand = false;
+    pendingTemporalPersist = false;
     let instance;
     try {
         instance = createHostApp(options);
@@ -108,6 +175,9 @@ export function initApp(options) {
  * (no crash, no silent fake adapters).
  */
 export function initDeviceApp(factory, adapters) {
+    bootComplete = false;
+    pendingCommand = false;
+    pendingTemporalPersist = false;
     if (typeof factory !== 'function') {
         model = Object.freeze(Object.assign({}, initialUiModel(), {
             errors: Object.freeze([{
@@ -136,34 +206,48 @@ export function initDeviceApp(factory, adapters) {
 }
 
 export function dispatch(msg) {
-    if (!app || !state) {
+    if (!app || !state || !bootComplete) {
         return model;
     }
     const pure = pureUpdate(model, msg);
     model = pure.model;
     const commands = pure.commands || [];
-    for (let index = 0; index < commands.length; index += 1) {
-        const result = app.handleCommand(state, commands[index]);
-        if (result.tag === 'Ok') {
-            state = result.state;
-            if (result.facts) {
-                // A successful command clears stale failure notices; errors
-                // survive ordinary page re-renders via refresh().
-                model = projectModel(state, result.facts);
-            }
-        } else {
-            const errors = model.errors.concat([{
-                text: '操作失败',
-                code: result.error && result.error.code
-            }]);
-            model = Object.freeze(Object.assign({}, model, { errors: errors }));
+    const run = function (index) {
+        if (index >= commands.length) {
+            return;
         }
-    }
+        if (pendingCommand) {
+            return;
+        }
+        pendingCommand = true;
+        const baseState = state;
+        const finish = function (result) {
+            pendingCommand = false;
+            if (result.tag === 'Ok') {
+                state = result.state;
+                if (result.facts) {
+                    // A successful command clears stale failure notices; errors
+                    // survive ordinary page re-renders via refresh().
+                    model = projectModel(state, result.facts);
+                }
+            } else {
+                appendModelError('操作失败', result.error && result.error.code);
+            }
+            run(index + 1);
+        };
+        const result = executeCommand(app, baseState, commands[index], finish);
+        if (result && result.tag === 'Pending') {
+            model = Object.freeze(Object.assign({}, model, {
+                commandPending: true
+            }));
+        }
+    };
+    run(0);
     return model;
 }
 
 export function refresh() {
-    if (!app || !state) {
+    if (!app || !state || !bootComplete) {
         return model;
     }
     const clockResult = app.ports.clock.now();
@@ -178,27 +262,53 @@ export function refresh() {
     // (the last persisted one), exactly like the command handler does.
     const baseRevision = state.revision;
     const reduced = reduceTemporalState(state, clockResult.value);
-    if (reduced.tag === 'Ok' && reduced.value !== state) {
+    if (reduced.tag === 'Ok' && reduced.value !== state && !pendingTemporalPersist) {
         const candidateState = reduced.value;
-        const persist = app.ports.store.saveSnapshot(baseRevision, createSnapshot(candidateState));
-        if (persist.tag === 'Ok') {
-            // Only a persisted reduction may become the global state: a
-            // failed save must not leave an uncommitted revision in memory
-            // (that would make every later save collide forever).
-            state = candidateState;
-        } else {
+        const snapshot = createSnapshot(candidateState);
+        let persistSettled = false;
+        const onPersist = function (persist) {
+            if (persistSettled) {
+                return;
+            }
+            persistSettled = true;
+            pendingTemporalPersist = false;
+            if (persist.tag === 'Ok') {
+                // Only a persisted reduction may become the global state: a
+                // failed save must not leave an uncommitted revision in memory
+                // (that would make every later save collide forever).
+                state = candidateState;
+                return;
+            }
             app.ports.diagnostics.append(Object.freeze({
                 tag: 'EffectFailed',
                 effect: 'PersistSnapshot',
                 code: persist.error.code,
                 at: clockResult.value
             }));
-            model = Object.freeze(Object.assign({}, model, {
-                errors: Object.freeze(model.errors.concat([{
-                    text: '状态保存失败，请重新打开应用',
-                    code: persist.error.code
-                }]))
-            }));
+            appendModelError('状态保存失败，请重新打开应用', persist.error.code);
+        };
+        if (typeof app.ports.store.saveSnapshotAsync === 'function') {
+            pendingTemporalPersist = true;
+            try {
+                const pending = app.ports.store.saveSnapshotAsync(
+                    baseRevision,
+                    snapshot,
+                    onPersist
+                );
+                if (pending && pending.tag === 'Err') {
+                    onPersist(pending);
+                }
+            } catch (error) {
+                onPersist({
+                    tag: 'Err',
+                    error: {
+                        code: 'IO_FAILURE',
+                        details: error && error.message ? error.message : String(error)
+                    }
+                });
+            }
+        } else {
+            onPersist(app.ports.store.saveSnapshot(baseRevision, snapshot));
         }
     }
 
@@ -227,7 +337,7 @@ export function getState() {
 }
 
 export function isReady() {
-    return !!(app && state);
+    return !!(app && state && bootComplete);
 }
 
 /**
