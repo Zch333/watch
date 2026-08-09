@@ -1,5 +1,6 @@
 <div class="container">
     <text class="title">诊断</text>
+    <text class="row">版本：{{appVersion}}</text>
     <text class="row">SDK：{{sdkLabel}}</text>
     <text class="row">构建：{{buildSha}}</text>
     <text class="row">计划：{{planStatus}}</text>

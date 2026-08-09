@@ -39,6 +39,17 @@ function commandNeedsRegisteredPlan(command) {
 }
 
 /**
+ * User-presentation effects must observe committed state. If vibration or
+ * navigation runs before the snapshot callback succeeds, a page can open on
+ * the old model or the watch can alert for a transition that was never made
+ * durable. Registry/diagnostic effects remain pre-commit because lifecycle
+ * settlement depends on their reports.
+ */
+function isPostCommitEffect(effect) {
+    return effect && (effect.tag === 'Vibrate' || effect.tag === 'Navigate');
+}
+
+/**
  * Map a register() port result to the domain settlement ADT:
  *   { tag: 'Registered' } | { tag: 'Partial', failedKeys } | { tag: 'Failed', code, failedKeys }
  *
@@ -97,6 +108,23 @@ export function createCommandHandler(ports) {
             results: results,
             facts: facts
         });
+    }
+
+    function runPostCommitEffects(effects, results, now) {
+        for (let index = 0; index < effects.length; index += 1) {
+            const effect = effects[index];
+            const result = interpretEffect(effect, ports);
+            results.push(Object.freeze({ effectTag: effect.tag, result: result }));
+            if (result.tag === 'Err') {
+                ports.diagnostics.append(Object.freeze({
+                    tag: 'EffectFailed',
+                    effect: effect.tag,
+                    code: result.error.code,
+                    at: now
+                }));
+            }
+        }
+        return results;
     }
 
     const handleCommand = function (state, command, options) {
@@ -195,11 +223,17 @@ export function createCommandHandler(ports) {
         }
         const decision = decisionResult.value;
 
-        // 1) Execute business effects and collect per-effect reports.
+        // 1) Execute effects whose results participate in settlement. Delay
+        //    user-presentation effects until after the durable commit.
         const results = [];
+        const postCommitEffects = [];
         let registration;
         for (let index = 0; index < decision.effects.length; index += 1) {
             const effect = decision.effects[index];
+            if (isPostCommitEffect(effect)) {
+                postCommitEffects.push(effect);
+                continue;
+            }
             const result = interpretEffect(effect, ports);
             results.push(Object.freeze({ effectTag: effect.tag, result: result }));
             if (effect.tag === 'RegisterReminders') {
@@ -323,6 +357,7 @@ export function createCommandHandler(ports) {
                         ));
                         return;
                     }
+                    runPostCommitEffects(postCommitEffects, settledResults, now);
                     opts.onPersistPending({
                         tag: 'Ok',
                         state: candidateState,
@@ -374,6 +409,8 @@ export function createCommandHandler(ports) {
                 );
             }
         }
+
+        runPostCommitEffects(postCommitEffects, results, now);
 
         return {
             tag: 'Ok',

@@ -67,12 +67,20 @@ export default {
     render() {
         this.syncModel();
     },
-    afterAction(model) {
-        if (!model || (model.errors || []).length === 0) {
-            return;
-        }
-        this.hasError = true;
-        this.errorText = errorText(model);
+    runAction(app, message, route) {
+        this.hasError = false;
+        this.errorText = '';
+        var page = this;
+        app.dispatch(message, function (nextModel, result) {
+            if (!result || result.tag !== 'Ok' || (nextModel.errors || []).length > 0) {
+                page.hasError = true;
+                page.errorText = errorText(nextModel);
+                return;
+            }
+            if (typeof app.navigateTo === 'function') {
+                app.navigateTo(route);
+            }
+        });
     },
     onStart() {
         var app = runtime();
@@ -81,13 +89,10 @@ export default {
             this.errorText = '应用仍在初始化，请稍候';
             return;
         }
-        this.afterAction(app.dispatch({
+        this.runAction(app, {
             tag: 'StartDuePressed',
             reminderKey: this.reminderKey
-        }));
-        if (!this.hasError && typeof app.navigateTo === 'function') {
-            app.navigateTo('break-active');
-        }
+        }, 'break-active');
     },
     onSkip() {
         var app = runtime();
@@ -96,10 +101,7 @@ export default {
             this.errorText = '应用仍在初始化，请稍候';
             return;
         }
-        this.afterAction(app.dispatch({ tag: 'SkipBreakPressed' }));
-        if (!this.hasError && typeof app.navigateTo === 'function') {
-            app.navigateTo('home');
-        }
+        this.runAction(app, { tag: 'SkipBreakPressed' }, 'home');
     },
     onHome() {
         var app = runtime();

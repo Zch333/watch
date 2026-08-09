@@ -46,6 +46,7 @@ export default {
         storeRevision: 0,
         storeState: 'Unknown',
         sdkLabel: 'Lite API 24',
+        appVersion: 'unknown',
         buildSha: 'unknown',
         timezone: 'Unknown',
         hapticsState: 'Unknown',
@@ -82,6 +83,7 @@ export default {
         this.storeState = snapshot.storeState;
         var build = snapshot.buildInfo || {};
         this.sdkLabel = build.sdk || 'Host';
+        this.appVersion = build.version || 'Host';
         this.buildSha = build.sha || 'host';
         this.timezone = formatOffset(snapshot.utcOffsetMinutes);
         this.hapticsState = snapshot.hapticsState || 'Unknown';

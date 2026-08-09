@@ -177,27 +177,33 @@ export default {
             this.hasError = true;
             return;
         }
-        var model;
+        this.hasError = false;
+        this.errorText = '';
+        var page = this;
         try {
-            model = app.dispatch({ tag: 'StartNowPressed' });
+            app.dispatch({ tag: 'StartNowPressed' }, function (nextModel, result) {
+                var errors = nextModel && nextModel.errors ? nextModel.errors : [];
+                if (!result || result.tag !== 'Ok' || errors.length > 0) {
+                    page.hasError = true;
+                    page.errorText = errors.length > 0
+                        ? (errors[errors.length - 1].text || errors[errors.length - 1].code || '无法开始活动')
+                        : '无法开始活动';
+                    return;
+                }
+                if (typeof app.navigateTo !== 'function') {
+                    page.errorText = '应用导航不可用';
+                    page.hasError = true;
+                    return;
+                }
+                var navigation = app.navigateTo('break-active');
+                if (navigation && navigation.tag === 'Err') {
+                    page.hasError = true;
+                    page.errorText = '无法打开活动页面';
+                }
+            });
         } catch (error) {
             this.errorText = '无法开始活动';
             this.hasError = true;
-            return;
-        }
-        if ((model.errors || []).length > 0) {
-            this.syncModel();
-            return;
-        }
-        if (typeof app.navigateTo !== 'function') {
-            this.errorText = '应用导航不可用';
-            this.hasError = true;
-            return;
-        }
-        var result = app.navigateTo('break-active');
-        if (result && result.tag === 'Err') {
-            this.hasError = true;
-            this.errorText = '无法打开活动页面';
         }
     },
     onToggle() {
@@ -214,8 +220,10 @@ export default {
         var message = model.planStatus === 'Enabled' || model.planStatus === 'Paused'
             ? { tag: 'DisablePressed' }
             : { tag: 'EnablePressed' };
-        app.dispatch(message);
-        this.syncModel();
+        var page = this;
+        app.dispatch(message, function () {
+            page.syncModel();
+        });
     },
     onMore() {
         var app = runtime();

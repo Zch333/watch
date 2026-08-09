@@ -90,12 +90,16 @@ export default {
             this.errorText = '应用仍在初始化，请稍候';
             return;
         }
-        var model = app.dispatch(message);
-        if ((model.errors || []).length > 0) {
-            this.hasError = true;
-            this.errorText = lastError(model);
-            return;
-        }
-        app.navigateTo('home');
+        this.hasError = false;
+        this.errorText = '';
+        var page = this;
+        app.dispatch(message, function (nextModel, result) {
+            if (!result || result.tag !== 'Ok' || (nextModel.errors || []).length > 0) {
+                page.hasError = true;
+                page.errorText = lastError(nextModel);
+                return;
+            }
+            app.navigateTo('home');
+        });
     }
 };

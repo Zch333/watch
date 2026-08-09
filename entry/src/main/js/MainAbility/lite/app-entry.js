@@ -30,7 +30,8 @@ let ready = false;
 let startError = null;
 const buildInfo = Object.freeze({
     sdk: typeof __MOVE25_SDK_LABEL__ !== 'undefined' ? __MOVE25_SDK_LABEL__ : 'Lite API 24',
-    sha: typeof __MOVE25_BUILD_SHA__ !== 'undefined' ? __MOVE25_BUILD_SHA__ : 'unknown'
+    sha: typeof __MOVE25_BUILD_SHA__ !== 'undefined' ? __MOVE25_BUILD_SHA__ : 'unknown',
+    version: typeof __MOVE25_APP_VERSION__ !== 'undefined' ? __MOVE25_APP_VERSION__ : 'unknown'
 });
 
 function start() {

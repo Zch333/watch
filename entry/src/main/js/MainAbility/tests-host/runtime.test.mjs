@@ -60,6 +60,12 @@ function delayedStore() {
             const next = pending;
             pending = null;
             next.done(base.saveSnapshot(next.expectedRevision, next.snapshot));
+        },
+        reject() {
+            assert.ok(pending);
+            const next = pending;
+            pending = null;
+            next.done({ tag: 'Err', error: { tag: 'StoreError', code: 'IO_FAILURE' } });
         }
     });
 }
@@ -77,6 +83,30 @@ test('runtime/fixed-clock: creation without a valid Instant fails fast', () => {
     assert.throws(function () {
         createFixedClock({ tag: 'Instant', epochMilliseconds: Number.POSITIVE_INFINITY });
     }, /valid Instant/);
+});
+
+test('runtime/store v2: failed commit suppresses vibration and navigation', () => {
+    const store = delayedStore();
+    const navigation = createRecordingNavigation();
+    const ports = Object.assign({}, fullAdapterSet(), {
+        store: store,
+        navigation: navigation
+    });
+    const app = createAppRuntime(ports);
+    const boot = app.boot();
+    const settled = [];
+    app.handleCommandAsync(
+        boot.state,
+        { tag: 'StartBreakNow' },
+        undefined,
+        function (result) { settled.push(result); }
+    );
+
+    store.reject();
+    assert.equal(settled[0].tag, 'Err');
+    assert.equal(settled[0].state.breakSession.tag, 'NoBreak');
+    assert.deepEqual(ports.haptics._patterns(), []);
+    assert.deepEqual(navigation._routes(), []);
 });
 
 test('runtime/fixed-clock: set() refuses malformed instants', () => {
@@ -137,9 +167,13 @@ test('runtime/app-runtime: boots from injected ports without knowing their origi
     assert.equal(app.ports, ports);
 });
 
-test('runtime/store v2: async command does not expose an uncommitted state', () => {
+test('runtime/store v2: async command exposes neither candidate state nor presentation effects before commit', () => {
     const store = delayedStore();
-    const ports = Object.assign({}, fullAdapterSet(), { store: store });
+    const navigation = createRecordingNavigation();
+    const ports = Object.assign({}, fullAdapterSet(), {
+        store: store,
+        navigation: navigation
+    });
     const app = createAppRuntime(ports);
     const boot = app.boot();
     assert.equal(boot.tag, 'Ok');
@@ -155,11 +189,15 @@ test('runtime/store v2: async command does not expose an uncommitted state', () 
     assert.equal(pending.tag, 'Pending');
     assert.equal(settled.length, 0);
     assert.equal(store.loadSnapshot().value.tag, 'None');
+    assert.deepEqual(ports.haptics._patterns(), []);
+    assert.deepEqual(navigation._routes(), []);
     store.flush();
     assert.equal(settled.length, 1);
     assert.equal(settled[0].tag, 'Ok');
     assert.equal(settled[0].state.breakSession.tag, 'Active');
     assert.equal(store.loadSnapshot().value.value.revision, settled[0].state.revision);
+    assert.deepEqual(ports.haptics._patterns(), ['BreakStart']);
+    assert.deepEqual(navigation._routes(), ['break-active']);
 });
 
 test('runtime/shell: a malformed clock value is rejected at the shell boundary', () => {

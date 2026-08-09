@@ -141,13 +141,14 @@ export default {
             }
             self.elapsedDispatched = true;
             self.stopVisibleTicker();
-            var next = app.dispatch({ tag: 'BreakElapsed' });
-            if ((next.errors || []).length === 0) {
-                app.navigateTo('home');
-                return;
-            }
-            self.hasError = true;
-            self.errorText = errorText(next);
+            app.dispatch({ tag: 'BreakElapsed' }, function (nextModel, result) {
+                if (result && result.tag === 'Ok' && (nextModel.errors || []).length === 0) {
+                    app.navigateTo('home');
+                    return;
+                }
+                self.hasError = true;
+                self.errorText = errorText(nextModel);
+            });
         };
         this.timerId = scheduleVisibleTimer(tick, 1000);
     },
@@ -157,14 +158,6 @@ export default {
             this.timerId = -1;
         }
     },
-    afterAction(model) {
-        if (!model || (model.errors || []).length === 0) {
-            return;
-        }
-        this.hasError = true;
-        this.errorText = errorText(model);
-        this.syncModel();
-    },
     onComplete() {
         var app = runtime();
         if (!app || typeof app.isReady !== 'function' || !app.isReady()) {
@@ -173,11 +166,7 @@ export default {
             return;
         }
         this.stopVisibleTicker();
-        var next = app.dispatch({ tag: 'CompletePressed' });
-        this.afterAction(next);
-        if (!this.hasError && typeof app.navigateTo === 'function') {
-            app.navigateTo('home');
-        }
+        this.finishAction(app, { tag: 'CompletePressed' });
     },
     onSkip() {
         var app = runtime();
@@ -187,11 +176,23 @@ export default {
             return;
         }
         this.stopVisibleTicker();
-        var next = app.dispatch({ tag: 'SkipBreakPressed' });
-        this.afterAction(next);
-        if (!this.hasError && typeof app.navigateTo === 'function') {
-            app.navigateTo('home');
-        }
+        this.finishAction(app, { tag: 'SkipBreakPressed' });
+    },
+    finishAction(app, message) {
+        this.hasError = false;
+        this.errorText = '';
+        var page = this;
+        app.dispatch(message, function (nextModel, result) {
+            if (result && result.tag === 'Ok' && (nextModel.errors || []).length === 0) {
+                if (typeof app.navigateTo === 'function') {
+                    app.navigateTo('home');
+                }
+                return;
+            }
+            page.hasError = true;
+            page.errorText = errorText(nextModel);
+            page.syncModel();
+        });
     },
     onHome() {
         var app = runtime();
@@ -199,11 +200,12 @@ export default {
             return;
         }
         this.stopVisibleTicker();
-        if (this.finished) {
-            app.dispatch({ tag: 'AckFinishedPressed' });
+        if (!this.finished) {
+            if (typeof app.navigateTo === 'function') {
+                app.navigateTo('home');
+            }
+            return;
         }
-        if (typeof app.navigateTo === 'function') {
-            app.navigateTo('home');
-        }
+        this.finishAction(app, { tag: 'AckFinishedPressed' });
     }
 };

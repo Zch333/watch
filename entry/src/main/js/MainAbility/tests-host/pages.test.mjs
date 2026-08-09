@@ -29,6 +29,40 @@ async function loadSettingsPage() {
     return mod.default;
 }
 
+async function withLiteRuntime(fakeRuntime, action) {
+    const previous = globalThis.__MOVE25_LITE_RUNTIME__;
+    globalThis.__MOVE25_LITE_RUNTIME__ = fakeRuntime;
+    try {
+        await action();
+    } finally {
+        if (previous === undefined) {
+            delete globalThis.__MOVE25_LITE_RUNTIME__;
+        } else {
+            globalThis.__MOVE25_LITE_RUNTIME__ = previous;
+        }
+    }
+}
+
+function delayedRuntime(model) {
+    const callbacks = [];
+    const routes = [];
+    return {
+        callbacks: callbacks,
+        routes: routes,
+        start() {},
+        isReady() { return true; },
+        refresh() { return model; },
+        dispatch(message, done) {
+            callbacks.push({ message: message, done: done });
+            return Object.assign({}, model, { commandPending: true });
+        },
+        navigateTo(route) {
+            routes.push(route);
+            return { tag: 'Ok' };
+        }
+    };
+}
+
 test('mvu: BreakElapsed maps to a reconcile command (absolute-time reduction)', () => {
     const result = update(initialUiModel(), { tag: 'BreakElapsed' });
     assert.equal(result.commands.length, 1);
@@ -122,6 +156,66 @@ test('settings: waits for the durable save callback before leaving the page', as
             globalThis.__MOVE25_LITE_RUNTIME__ = previousLiteRuntime;
         }
     }
+});
+
+test('home: immediate break navigates only after durable command completion', async () => {
+    const fake = delayedRuntime({ errors: [], canSchedule: true, planStatus: 'Disabled' });
+    await withLiteRuntime(fake, async () => {
+        const page = (await import('../pages/home/index.js')).default;
+        page.onStartNow();
+        assert.deepEqual(fake.routes, [], 'pending storage must keep the user on home');
+        assert.equal(fake.callbacks[0].message.tag, 'StartNowPressed');
+
+        fake.callbacks[0].done({ errors: [] }, { tag: 'Ok' });
+        assert.deepEqual(fake.routes, ['break-active']);
+    });
+});
+
+test('home: failed immediate break stays on home and shows the committed failure', async () => {
+    const fake = delayedRuntime({ errors: [], canSchedule: true, planStatus: 'Disabled' });
+    await withLiteRuntime(fake, async () => {
+        const page = (await import('../pages/home/index.js')).default;
+        page.onStartNow();
+        fake.callbacks[0].done({ errors: [{ code: 'IO_FAILURE', text: '操作失败' }] }, {
+            tag: 'Err', error: { code: 'IO_FAILURE' }
+        });
+        assert.deepEqual(fake.routes, []);
+        assert.equal(page.hasError, true);
+        assert.equal(page.errorText, '操作失败');
+    });
+});
+
+test('more: pause action waits for durable completion before returning home', async () => {
+    const fake = delayedRuntime({ errors: [] });
+    await withLiteRuntime(fake, async () => {
+        const page = (await import('../pages/more/index.js')).default;
+        page.onPauseToday();
+        assert.deepEqual(fake.routes, []);
+        assert.equal(fake.callbacks[0].message.tag, 'PauseTodayPressed');
+        fake.callbacks[0].done({ errors: [] }, { tag: 'Ok' });
+        assert.deepEqual(fake.routes, ['home']);
+    });
+});
+
+test('break pages: session transitions navigate only after durable completion', async () => {
+    const fake = delayedRuntime({ errors: [] });
+    await withLiteRuntime(fake, async () => {
+        const active = (await import('../pages/break-active/index.js')).default;
+        active.onComplete();
+        assert.deepEqual(fake.routes, []);
+        assert.equal(fake.callbacks[0].message.tag, 'CompletePressed');
+        fake.callbacks[0].done({ errors: [] }, { tag: 'Ok' });
+        assert.deepEqual(fake.routes, ['home']);
+
+        fake.routes.length = 0;
+        const due = (await import('../pages/break-due/index.js')).default;
+        due.reminderKey = 'move25:test';
+        due.onStart();
+        assert.deepEqual(fake.routes, []);
+        assert.equal(fake.callbacks[1].message.tag, 'StartDuePressed');
+        fake.callbacks[1].done({ errors: [] }, { tag: 'Ok' });
+        assert.deepEqual(fake.routes, ['break-active']);
+    });
 });
 
 test('settings: custom rhythm and weekend selections restore correctly', async () => {
@@ -240,6 +334,7 @@ test('diagnostics: the page shows the newest eight entries first', async () => {
     }
     const page = (await import('../pages/diagnostics/index.js')).default;
     page.render();
+    assert.equal(page.appVersion, 'Host');
     assert.equal(page.sdkLabel, 'Host');
     assert.equal(page.timezone, 'UTC+08:00');
     assert.equal(page.hapticsState, 'WiredUnverified');
