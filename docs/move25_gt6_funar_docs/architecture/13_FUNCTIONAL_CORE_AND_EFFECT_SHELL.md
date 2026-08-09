@@ -81,3 +81,13 @@ Lite JavaScript 运行时和项目规模不需要大型函数式库。效果联�
 - `PlanReconciliationIncomplete`
 
 下次激活重新对账，恢复到期望状态。
+
+## 6. Durable commit 与展示效果排序
+
+效果解释器按语义分两阶段执行：
+
+1. 提醒注册/取消与诊断等会参与生命周期结算的效果先执行；
+2. 结算后的候选状态只有在 StorePort 返回 durable success 后才能成为 committed state；
+3. `Vibrate` 与 `Navigate` 属于用户可感知的展示效果，只能在 durable commit 成功后执行。
+
+因此，持久化失败不得震动、不得跳页，也不得让页面看到未提交的会话。该排序由异步 StorePort 回归测试覆盖。

@@ -13,8 +13,8 @@
 | 伸展和护眼提示 | Break Guidance 组合/轮换 | UI | ViewModel 快照测试 |
 | 跨 vivo/iPhone/鸿蒙 | Standalone ADR | 应用市场安装链路 | 官方兼容性证据、发布测试 |
 | 低功耗 | 绝对时间、系统调度 | Reminder, Haptics | 适应度函数、三日功耗 A/B |
-| 暂停/跳过 | `applySuppression` | Store, Reminder | 性质测试、对账测试 |
-| 设置持久化 | Snapshot/Migration | Store | 契约、损坏恢复、迁移 |
+| 暂停/跳过 | `applySuppression` | Store, Reminder | 性质测试、对账测试、durable completion 后导航 |
+| 设置与会话持久化 | Snapshot/Migration、BreakSession | Store | 契约、损坏恢复、迁移、pending/失败不导航 |
 | 应用退出仍提醒 | CapabilityGate | Reminder | G5 |
 | 手机断开仍提醒 | CapabilityGate | Reminder | G6 |
 | 更换 API 不改领域 | Hexagonal ports | all | 假/真实适配器契约 |

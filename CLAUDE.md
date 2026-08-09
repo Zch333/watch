@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Move25：面向 HUAWEI WATCH GT 6（Lite Wearable）的工作—活动节律提醒应用（25 分钟工作 / 5 分钟活动），单 HAP、无网络、无云端。架构基线为 **FUNAR × Functional DDD × Hexagonal Architecture**，完整规范见 `docs/move25_gt6_funar_docs/`。
 
-**当前状态**：源码仍是 DevEco Lite 模板脚手架（`entry/src/main/js/MainAbility/` 下只有 `app.js` 和 `pages/index` 示例页），领域内核、端口、适配器均未实现，也无任何测试代码。开发按 `delivery/27_IMPLEMENTATION_ROADMAP.md` 的 Phase 0–6 推进。
+**当前状态**：动态实现、测试、构建与能力证据统一以 `docs/status/CURRENT_STATE.md` 为准。领域内核、端口、适配器、应用壳与 MVU 页面均已存在；不要依据本文复制易过期的完成数量。
 
 **范围边界**：`docs/后续延展，暂不考虑/` 下的 HealthWeave 文档是搁置的远期扩展，不属于当前范围，不要据此实现。
 
@@ -15,7 +15,7 @@ Move25：面向 HUAWEI WATCH GT 6（Lite Wearable）的工作—活动节律提�
 - 工程为 **legacy FA 模型**：`entry/src/main/config.json`（非 module.json5）+ JS MainAbility（`srcLanguage: "js"`）。页面是 Lite JS 的 `.hml/.css/.js`，**不是 ArkTS `.ets`**。
 - SDK 6.1.1(24)，目标设备类型 `liteWearable`；构建配置在 `build-profile.json5`、`hvigor/hvigor-config.json5`。
 - 仓库内没有 `hvigorw` 包装脚本，构建/安装/签名经 DevEco Studio（内置 hvigor 位于 DevEco Studio.app 的 `Contents/tools/hvigor/bin/hvigorw`）完成。
-- 测试框架 `@ohos/hypium`（1.0.25）已声明为 devDependency，但尚无测试目录。按 `delivery/21_TEST_STRATEGY.md`，领域/工作流/性质测试是纯 JS，可在宿主 Node 环境直接运行，不依赖设备。
+- 测试框架 `@ohos/hypium`（1.0.25）已声明为 devDependency。纯 JS 宿主测试位于 `entry/src/main/js/MainAbility/tests-host/`，在仓库根目录运行 `npm test`；当前数量与结果见 `docs/status/CURRENT_STATE.md`。
 - 代码检查规则在 `code-linter.json5`（@ohos 安全/性能插件 + typescript-eslint）。
 
 ## 架构（不可违背）
