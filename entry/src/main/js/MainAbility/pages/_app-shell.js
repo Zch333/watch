@@ -33,13 +33,24 @@ function appendModelError(text, code) {
     }));
 }
 
+function resetShell() {
+    app = null;
+    state = null;
+    model = initialUiModel();
+    bootComplete = false;
+    pendingCommand = false;
+    pendingTemporalPersist = false;
+}
+
 function executeCommand(instance, baseState, command, done) {
     let settled = false;
+    let settledResult = null;
     const finish = function (result) {
         if (settled) {
             return;
         }
         settled = true;
+        settledResult = result;
         done(result);
     };
     try {
@@ -53,7 +64,10 @@ function executeCommand(instance, baseState, command, done) {
             if (immediate && immediate.tag !== 'Pending') {
                 finish(immediate);
             }
-            return immediate;
+            // Memory/test adapters may invoke their callback synchronously.
+            // In that case do not report Pending after completion and put the
+            // UI back into a busy state.
+            return settled ? settledResult : immediate;
         }
         const result = instance.handleCommand(baseState, command);
         finish(result);
@@ -148,9 +162,9 @@ function bootApp(instance) {
 }
 
 export function initApp(options) {
-    bootComplete = false;
-    pendingCommand = false;
-    pendingTemporalPersist = false;
+    // A failed re-initialization must never leave the previous app/state
+    // reachable through isReady().
+    resetShell();
     let instance;
     try {
         instance = createHostApp(options);
@@ -175,9 +189,9 @@ export function initApp(options) {
  * (no crash, no silent fake adapters).
  */
 export function initDeviceApp(factory, adapters) {
-    bootComplete = false;
-    pendingCommand = false;
-    pendingTemporalPersist = false;
+    // Clear a previous successful runtime before validating the new device
+    // composition. Otherwise a failed restart could expose stale state.
+    resetShell();
     if (typeof factory !== 'function') {
         model = Object.freeze(Object.assign({}, initialUiModel(), {
             errors: Object.freeze([{
@@ -205,24 +219,46 @@ export function initDeviceApp(factory, adapters) {
     return model;
 }
 
-export function dispatch(msg) {
+export function dispatch(msg, done) {
+    const complete = function (result) {
+        if (typeof done === 'function') {
+            done(model, result);
+        }
+    };
     if (!app || !state || !bootComplete) {
+        complete({
+            tag: 'Err',
+            error: { code: 'APP_NOT_READY' },
+            state: state
+        });
+        return model;
+    }
+    if (pendingCommand) {
+        complete({
+            tag: 'Err',
+            error: { code: 'COMMAND_PENDING' },
+            state: state
+        });
         return model;
     }
     const pure = pureUpdate(model, msg);
     model = pure.model;
     const commands = pure.commands || [];
+    let lastResult = { tag: 'Ok', state: state };
     const run = function (index) {
         if (index >= commands.length) {
-            return;
-        }
-        if (pendingCommand) {
+            complete(lastResult);
             return;
         }
         pendingCommand = true;
         const baseState = state;
         const finish = function (result) {
             pendingCommand = false;
+            lastResult = result;
+            model = Object.freeze(Object.assign({}, model, {
+                commandPending: false,
+                isBusy: false
+            }));
             if (result.tag === 'Ok') {
                 state = result.state;
                 if (result.facts) {
@@ -238,7 +274,8 @@ export function dispatch(msg) {
         const result = executeCommand(app, baseState, commands[index], finish);
         if (result && result.tag === 'Pending') {
             model = Object.freeze(Object.assign({}, model, {
-                commandPending: true
+                commandPending: true,
+                isBusy: true
             }));
         }
     };
@@ -386,13 +423,38 @@ export function diagnosticsSnapshot() {
         storeState = status.value.persistenceState || 'Memory';
     }
 
+    let utcOffsetMinutes = null;
+    const now = app.ports.clock.now();
+    if (now.tag === 'Ok') {
+        const offset = app.ports.calendar.utcOffset(now.value);
+        if (offset.tag === 'Ok') {
+            utcOffsetMinutes = offset.value;
+        }
+    }
+    const capabilityTag = state && state.capability ? state.capability.tag : 'Unknown';
+    let deliveryMode = 'ManualOnly';
+    if (capabilityTag === 'Supported') {
+        deliveryMode = 'WatchStandalone';
+    } else if (capabilityTag === 'Degraded') {
+        deliveryMode = 'WatchDegraded';
+    }
+    const lastError = model.errors.length > 0
+        ? model.errors[model.errors.length - 1]
+        : null;
+
     return {
         capability: state ? state.capability : null,
         registeredKeys: registeredKeys,
         entries: entries,
         storeRevision: storeRevision,
         storeState: storeState,
-        planLifecycle: state ? state.planLifecycle.tag : 'Unknown'
+        planLifecycle: state ? state.planLifecycle.tag : 'Unknown',
+        utcOffsetMinutes: utcOffsetMinutes,
+        hapticsState: app.ports.haptics && typeof app.ports.haptics.vibrate === 'function'
+            ? 'WiredUnverified'
+            : 'Unavailable',
+        deliveryMode: deliveryMode,
+        lastError: lastError
     };
 }
 

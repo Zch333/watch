@@ -1,10 +1,16 @@
 <div class="container">
     <text class="title">诊断</text>
+    <text class="row">SDK：{{sdkLabel}}</text>
+    <text class="row">构建：{{buildSha}}</text>
     <text class="row">计划：{{planStatus}}</text>
     <text class="row">能力：{{capability}}</text>
+    <text class="row">交付：{{deliveryMode}}</text>
+    <text class="row">时区：{{timezone}}</text>
+    <text class="row">震动：{{hapticsState}}</text>
     <text class="row">已注册提醒：{{registeredCount}}</text>
     <text class="row">快照版本：{{storeRevision}}</text>
     <text class="row">持久化：{{storeState}}</text>
+    <text class="row">最近错误：{{lastError}}</text>
     <text class="label">最近诊断</text>
     <text class="entry" show="{{hasEntries}}">{{entriesText}}</text>
     <input type="button" class="btn" value="刷新" onclick="onRefresh"></input>

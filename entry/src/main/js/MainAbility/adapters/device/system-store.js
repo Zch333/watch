@@ -47,13 +47,17 @@ function errorMessage(error) {
  * intentionally an explicit error for this adapter so a synchronous caller
  * cannot accidentally claim durability.
  */
-export function createLoadedStore(initial, initialError, storageApi) {
+export function createLoadedStore(initial, initialError, storageApi, options) {
     let stored = initial;
     let revision = initial && typeof initial.revision === 'number' ? initial.revision : 0;
     let persistenceState = initialError ? 'Unavailable' : 'Ready';
     let persistenceError = initialError || null;
     let pending = false;
     const nativeStorage = storageApi || storage;
+    const opts = options || {};
+    const writeTimeoutMs = typeof opts.writeTimeoutMs === 'number' && opts.writeTimeoutMs >= 0
+        ? opts.writeTimeoutMs
+        : 3000;
 
     function loadResult() {
         if (initialError) {
@@ -111,11 +115,16 @@ export function createLoadedStore(initial, initialError, storageApi) {
         pending = true;
         persistenceState = 'Pending';
         let settled = false;
+        let writeTimer = -1;
         const finish = function (result, nextState, nextError) {
             if (settled) {
                 return;
             }
             settled = true;
+            if (writeTimer >= 0 && typeof clearTimeout === 'function') {
+                clearTimeout(writeTimer);
+                writeTimer = -1;
+            }
             pending = false;
             persistenceState = nextState;
             persistenceError = nextError || null;
@@ -137,6 +146,7 @@ export function createLoadedStore(initial, initialError, storageApi) {
                 },
                 fail: function (message, code) {
                     const details = { message: message, code: code };
+                    console.error('[Move25] snapshot save failed: ' + code + ' ' + message);
                     finish(err(storeError(STORE_ERROR_CODES.IO_FAILURE, details)),
                         'Failed', details);
                 }
@@ -147,6 +157,17 @@ export function createLoadedStore(initial, initialError, storageApi) {
             };
             finish(err(storeError(STORE_ERROR_CODES.IO_FAILURE, details)),
                 'Failed', details);
+        }
+        if (!settled && typeof setTimeout === 'function') {
+            writeTimer = setTimeout(function () {
+                const details = {
+                    message: 'Persistent storage write did not respond within ' + writeTimeoutMs + 'ms',
+                    code: STORE_ERROR_CODES.STORAGE_TIMEOUT
+                };
+                console.error('[Move25] snapshot save timed out after ' + writeTimeoutMs + 'ms');
+                finish(err(storeError(STORE_ERROR_CODES.STORAGE_TIMEOUT, details)),
+                    'Failed', details);
+            }, writeTimeoutMs);
         }
         return Object.freeze({
             tag: 'Pending',
@@ -230,7 +251,9 @@ export function openSystemStore(onReady, options) {
             key: SNAPSHOT_KEY,
             default: '',
             success: function (data) {
-                finish(createLoadedStore(decode(data), null, storage));
+                finish(createLoadedStore(decode(data), null, storage, {
+                    writeTimeoutMs: timeoutMs
+                }));
             },
             fail: function (message, code) {
                 console.error('[Move25] snapshot load failed: ' + code + ' ' + message);

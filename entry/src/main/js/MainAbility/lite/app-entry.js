@@ -28,6 +28,10 @@ import {
 let started = false;
 let ready = false;
 let startError = null;
+const buildInfo = Object.freeze({
+    sdk: typeof __MOVE25_SDK_LABEL__ !== 'undefined' ? __MOVE25_SDK_LABEL__ : 'Lite API 24',
+    sha: typeof __MOVE25_BUILD_SHA__ !== 'undefined' ? __MOVE25_BUILD_SHA__ : 'unknown'
+});
 
 function start() {
     if (started) {
@@ -86,14 +90,17 @@ const app = {
     refresh() {
         return shellRefresh();
     },
-    dispatch(message) {
-        return shellDispatch(message);
+    dispatch(message, done) {
+        return shellDispatch(message, done);
     },
     navigateTo(route) {
         return shellNavigateTo(route);
     },
     diagnosticsSnapshot() {
-        return shellDiagnosticsSnapshot();
+        const snapshot = shellDiagnosticsSnapshot();
+        return snapshot
+            ? Object.freeze(Object.assign({}, snapshot, { buildInfo: buildInfo }))
+            : null;
     }
 };
 

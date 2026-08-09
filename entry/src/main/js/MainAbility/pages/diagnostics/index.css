@@ -4,8 +4,8 @@
   flex-direction: column;
   align-items: center;
   background-color: #000000;
-  padding-left: 48px;
-  padding-right: 48px;
+  padding-left: 42px;
+  padding-right: 42px;
 }
 .item {
   width: 100%;
@@ -21,31 +21,31 @@
   padding-right: 48px;
 }
 .title {
-  font-size: 30px;
+  font-size: 24px;
   color: #ffffff;
-  margin-bottom: 12px;
-}
-.row {
-  font-size: 20px;
-  color: #dddddd;
   margin-bottom: 4px;
 }
+.row {
+  font-size: 15px;
+  color: #dddddd;
+  margin-bottom: 1px;
+}
 .label {
-  font-size: 20px;
+  font-size: 16px;
   color: #999999;
-  margin-top: 14px;
-  margin-bottom: 6px;
+  margin-top: 4px;
+  margin-bottom: 2px;
 }
 .entry {
-  font-size: 16px;
+  font-size: 13px;
   color: #888888;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 .btn {
   width: 240px;
-  height: 48px;
-  margin-top: 14px;
-  font-size: 20px;
+  height: 34px;
+  margin-top: 4px;
+  font-size: 17px;
   background-color: #2a2a2e;
   color: #ffffff;
 }

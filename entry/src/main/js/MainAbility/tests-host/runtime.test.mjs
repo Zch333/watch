@@ -14,7 +14,7 @@ import { createRecordingNavigation } from '../adapters/memory/recording-navigati
 import { instant } from '../domain/values.js';
 import { capabilitySupported } from '../domain/state.js';
 import { ok } from '../domain/result.js';
-import { initApp, initDeviceApp, dispatch, refresh, getModel, getState } from '../pages/_app-shell.js';
+import { initApp, initDeviceApp, dispatch, refresh, getModel, getState, isReady } from '../pages/_app-shell.js';
 
 function inst(ms) {
     const result = instant(ms);
@@ -200,6 +200,17 @@ test('runtime/shell: initDeviceApp without a factory is explicit', () => {
     const model = initDeviceApp();
     assert.equal(model.errors.length > 0, true);
     assert.equal(model.errors[0].code, 'DEVICE_FACTORY_MISSING');
+});
+
+test('runtime/shell: failed re-initialization cannot expose stale ready state', () => {
+    initDeviceApp(createDeviceApp, fullAdapterSet());
+    assert.equal(isReady(), true);
+    assert.ok(getState());
+
+    const model = initDeviceApp();
+    assert.equal(model.errors[0].code, 'DEVICE_FACTORY_MISSING');
+    assert.equal(isReady(), false);
+    assert.equal(getState(), null);
 });
 
 test('runtime/shell: refresh settles an expired active session and persists it', () => {

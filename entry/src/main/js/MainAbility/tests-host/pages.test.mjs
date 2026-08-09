@@ -74,6 +74,56 @@ test('settings: saving without edits preserves the current 25/5 plan', async () 
     assert.equal(after.nextBreakText, '10:25');
 });
 
+test('settings: waits for the durable save callback before leaving the page', async () => {
+    const page = await loadSettingsPage();
+    const routes = [];
+    let saveDone = null;
+    const previousLiteRuntime = globalThis.__MOVE25_LITE_RUNTIME__;
+    globalThis.__MOVE25_LITE_RUNTIME__ = {
+        start() {},
+        isReady() { return true; },
+        refresh() {
+            return {
+                planStatus: 'Disabled',
+                settingsSummary: {
+                    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+                    blocks: ['09:00–12:00', '13:30–18:00'],
+                    rawBlocks: [{ start: 540, end: 720 }, { start: 810, end: 1080 }],
+                    focusMinutes: 25,
+                    breakMinutes: 5
+                }
+            };
+        },
+        dispatch(message, done) {
+            assert.equal(message.tag, 'SettingsSaved');
+            saveDone = done;
+            return { errors: [], commandPending: true };
+        },
+        navigateTo(route) {
+            routes.push(route);
+        }
+    };
+
+    try {
+        page.restoreFromModel();
+        page.onRhythm1();
+        page.onSave();
+        assert.equal(page.saving, true);
+        assert.equal(page.statusText, '正在保存…');
+        assert.deepEqual(routes, [], 'must stay on settings while storage is pending');
+
+        saveDone({ errors: [] }, { tag: 'Ok' });
+        assert.equal(page.saving, false);
+        assert.deepEqual(routes, ['home'], 'navigate only after durable success');
+    } finally {
+        if (previousLiteRuntime === undefined) {
+            delete globalThis.__MOVE25_LITE_RUNTIME__;
+        } else {
+            globalThis.__MOVE25_LITE_RUNTIME__ = previousLiteRuntime;
+        }
+    }
+});
+
 test('settings: custom rhythm and weekend selections restore correctly', async () => {
     initApp({ instant: at(2026, 8, 6, 600), utcOffsetMinutes: OFFSET, capability: SUPPORTED });
     dispatch({
@@ -190,6 +240,11 @@ test('diagnostics: the page shows the newest eight entries first', async () => {
     }
     const page = (await import('../pages/diagnostics/index.js')).default;
     page.render();
+    assert.equal(page.sdkLabel, 'Host');
+    assert.equal(page.timezone, 'UTC+08:00');
+    assert.equal(page.hapticsState, 'WiredUnverified');
+    assert.equal(page.deliveryMode, 'WatchStandalone');
+    assert.equal(page.lastError, 'None');
     assert.equal(page.entries.length, 8);
     assert.equal(page.entries[0], 'E12', 'the newest entry must be first');
     assert.equal(page.entries[7], 'E5', 'the oldest shown entry is the fifth-newest');

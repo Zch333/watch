@@ -26,6 +26,18 @@ function runtime() {
     }
 }
 
+function formatOffset(minutes) {
+    if (typeof minutes !== 'number') {
+        return 'Unknown';
+    }
+    var sign = minutes < 0 ? '-' : '+';
+    var absolute = Math.abs(minutes);
+    var hours = Math.floor(absolute / 60);
+    var rest = absolute % 60;
+    return 'UTC' + sign + (hours < 10 ? '0' : '') + hours + ':' +
+        (rest < 10 ? '0' : '') + rest;
+}
+
 export default {
     data: {
         planStatus: 'Unknown',
@@ -33,6 +45,12 @@ export default {
         registeredCount: 0,
         storeRevision: 0,
         storeState: 'Unknown',
+        sdkLabel: 'Lite API 24',
+        buildSha: 'unknown',
+        timezone: 'Unknown',
+        hapticsState: 'Unknown',
+        deliveryMode: 'ManualOnly',
+        lastError: 'None',
         entries: [],
         entriesText: '',
         hasEntries: false
@@ -62,6 +80,14 @@ export default {
         this.registeredCount = (snapshot.registeredKeys || []).length;
         this.storeRevision = snapshot.storeRevision;
         this.storeState = snapshot.storeState;
+        var build = snapshot.buildInfo || {};
+        this.sdkLabel = build.sdk || 'Host';
+        this.buildSha = build.sha || 'host';
+        this.timezone = formatOffset(snapshot.utcOffsetMinutes);
+        this.hapticsState = snapshot.hapticsState || 'Unknown';
+        this.deliveryMode = snapshot.deliveryMode || 'ManualOnly';
+        var error = snapshot.lastError;
+        this.lastError = error ? (error.code || error.text || 'Unknown') : 'None';
         var lines = [];
         var entries = snapshot.entries || [];
         var count = Math.min(entries.length, 8);

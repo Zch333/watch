@@ -103,10 +103,10 @@ export default {
         blockFg1: CHIP_OFF_FG,
         blockBg2: CHIP_OFF_BG,
         blockFg2: CHIP_OFF_FG,
-        rhythmBg0: CHIP_OFF_BG,
-        rhythmFg0: CHIP_OFF_FG,
-        rhythmBg1: CHIP_ON_BG,
-        rhythmFg1: CHIP_ON_FG,
+        rhythmBg0: CHIP_ON_BG,
+        rhythmFg0: CHIP_ON_FG,
+        rhythmBg1: CHIP_OFF_BG,
+        rhythmFg1: CHIP_OFF_FG,
         rhythmBg2: CHIP_OFF_BG,
         rhythmFg2: CHIP_OFF_FG,
         rhythmBg3: CHIP_OFF_BG,
@@ -122,6 +122,9 @@ export default {
         weekdaySummary: '',
         blockSummary: '',
         rhythmSummary: '',
+        saving: false,
+        hasStatus: false,
+        statusText: '',
         hasError: false,
         errorText: ''
     },
@@ -187,6 +190,9 @@ export default {
             : '当前：自定义节律';
 
         this.enabledFlag = model.planStatus === 'Enabled' || model.planStatus === 'Paused';
+        this.saving = false;
+        this.hasStatus = false;
+        this.statusText = '';
         this.hasError = false;
         this.errorText = '';
     },
@@ -242,6 +248,9 @@ export default {
     onRhythm2() { this.onRhythmTap(2); },
     onRhythm3() { this.onRhythmTap(3); },
     onSave() {
+        if (this.saving) {
+            return;
+        }
         const app = runtime();
         if (!app || !app.isReady()) {
             this.hasError = true;
@@ -265,7 +274,13 @@ export default {
                 focus: this.originalFocusMinutes,
                 break: this.originalBreakMinutes
             };
-        const nextModel = app.dispatch({
+        this.saving = true;
+        this.hasStatus = true;
+        this.statusText = '正在保存…';
+        this.hasError = false;
+        this.errorText = '';
+        const page = this;
+        app.dispatch({
             tag: 'SettingsSaved',
             raw: {
                 enabledFlag: this.enabledFlag,
@@ -274,17 +289,21 @@ export default {
                 focusMinutes: rhythm.focus,
                 breakMinutes: rhythm.break
             }
+        }, function (nextModel, result) {
+            page.saving = false;
+            page.hasStatus = false;
+            page.statusText = '';
+            const errors = nextModel && nextModel.errors ? nextModel.errors : [];
+            if (result && result.tag === 'Ok' && errors.length === 0) {
+                // Native storage success is the durability boundary. Do not
+                // leave this page until that callback has completed.
+                app.navigateTo('home');
+                return;
+            }
+            page.hasError = true;
+            page.errorText = errors.length > 0
+                ? (errors[errors.length - 1].text || errors[errors.length - 1].code)
+                : '保存失败，请重试';
         });
-        const errors = nextModel.errors || [];
-        if (errors.length === 0) {
-            // Only leave the page when saving, reconciling and persisting all
-            // succeeded: a failed save must stay visible (P1-10).
-            app.navigateTo('home');
-            return;
-        }
-        this.hasError = true;
-        this.errorText = errors[errors.length - 1].text ||
-            errors[errors.length - 1].code ||
-            '保存失败';
     }
 };

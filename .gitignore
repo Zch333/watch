@@ -29,3 +29,5 @@ signingConfigs/
 .codegenie
 .claude
 .appanalyzer
+/.cache/
+.DS_Store

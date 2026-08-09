@@ -24,6 +24,7 @@
         <input type="button" class="chip rhythm" value="30/5" onclick="onRhythm3"></input>
     </div>
     <text class="selection">{{rhythmSummary}}</text>
+    <text class="status" if="{{hasStatus}}">{{statusText}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
     <input type="button" class="btn-primary" value="保存" onclick="onSave"></input>
 </div>
