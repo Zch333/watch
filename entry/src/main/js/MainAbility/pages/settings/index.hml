@@ -10,12 +10,12 @@
         <input type="button" class="chip" value="六" onclick="onWeekday5"></input>
         <input type="button" class="chip" value="日" onclick="onWeekday6"></input>
     </div>
-    <text class="selection">{{weekdaySummary}}</text>
+    <text class="summary-text">{{weekdaySummary}}</text>
     <text class="label">工作时段</text>
     <input type="button" class="wide-chip" value="09:00–12:00 / 13:30–18:00" onclick="onBlock0"></input>
     <input type="button" class="wide-chip" value="08:30–12:00 / 13:00–17:30" onclick="onBlock1"></input>
     <input type="button" class="wide-chip" value="09:00–11:30 / 14:00–17:30" onclick="onBlock2"></input>
-    <text class="selection">{{blockSummary}}</text>
+    <text class="summary-text">{{blockSummary}}</text>
     <text class="label">节律（工作 / 活动）</text>
     <div class="row">
         <input type="button" class="chip rhythm" value="25/5" onclick="onRhythm0"></input>
@@ -23,7 +23,7 @@
         <input type="button" class="chip rhythm" value="45/15" onclick="onRhythm2"></input>
         <input type="button" class="chip rhythm" value="30/5" onclick="onRhythm3"></input>
     </div>
-    <text class="selection">{{rhythmSummary}}</text>
+    <text class="summary-text">{{rhythmSummary}}</text>
     <text class="status" if="{{hasStatus}}">{{statusText}}</text>
     <text class="error" if="{{hasError}}">{{errorText}}</text>
     <input type="button" class="btn-primary" value="保存" onclick="onSave"></input>
