@@ -7,8 +7,8 @@ kotlin { jvmToolchain(17) }
 dependencies {
     implementation(project(":domain"))
     implementation(project(":ports"))
+    implementation(project(":application"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)
 }

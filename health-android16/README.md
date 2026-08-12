@@ -20,6 +20,18 @@
 | `adapter-android` | Room 账本、Keystore 加密、DataStore 开关、WorkManager、通知/导出 |
 | `adapter-huawei` | Android Health Service + Cloud REST + Wear Engine + Lite 消息协议适配 |
 | `app` | Android 16 Compose 自适应 UI、MVU/ViewModel、手工组合根 |
+| `contract-tests` | 平台同步、去重、游标、审计等共享端口契约测试 |
+
+详细说明：
+
+- [架构与限界上下文](docs/ARCHITECTURE.md)
+- [需求追踪矩阵](docs/TRACEABILITY.md)
+- [Huawei 正式接入约束](docs/HUAWEI_INTEGRATION.md)
+- [ADK、Gemini Nano 与 App Functions](docs/AI_AND_APPFUNCTIONS.md)
+- [发布/研究门禁](docs/RELEASE_GATES.md)
+- [测试计划与延期项](docs/TEST_PLAN.md)
+- [算法卡](docs/algorithm-cards/) 与 [AI 模型卡](docs/model-cards/)
+- [官方 API 来源快照](docs/SOURCES.md)
 
 ## Android 16 约束
 
@@ -32,3 +44,12 @@
 `adapter-huawei` 的领域适配与 Lite 协议是完整的；正式 SDK 调用通过 `HuaweiNativeClient` SPI 注入。这样做是硬性门禁，而非缺失实现：企业账号批准、应用 ID、签名指纹、正式 Scope、当前 Huawei SDK AAR 和 GT6 真机证据缺一时，运行态必须返回 `RequiresApproval`/`Unavailable`，不能伪造成已支持。
 
 接入清单见 [docs/HUAWEI_INTEGRATION.md](docs/HUAWEI_INTEGRATION.md)，需求追踪见 [docs/TRACEABILITY.md](docs/TRACEABILITY.md)。
+
+## 本次源码验证
+
+```bash
+bash tools/validate-source.sh
+node --test lite-companion-contract/protocol.test.mjs
+```
+
+上述命令不解析 Android 依赖、不启动 Gradle，也不要求 DevEco/Android SDK。按需求，本次未执行 Android 构建；Gradle/KSP、模拟器和 GT6 真机验证继续作为发布门禁。

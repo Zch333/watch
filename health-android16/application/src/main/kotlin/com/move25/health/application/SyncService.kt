@@ -18,11 +18,13 @@ class SyncHealthDataUseCase(
         val cursor = cursors.read("huawei_hybrid", group.id, subjectId)
         val accepted = mutableListOf<Observation>()
         var rejected = 0
+        var firstFailure: DomainError? = null
         var nextCursor: String? = null
         platform.read(ReadRequest(subjectId, group.kinds, interval, cursor)).collect { result ->
             when (result) {
                 is Result.Err -> {
                     rejected++
+                    if (firstFailure == null) firstFailure = result.error
                     quarantine?.retain("huawei_hybrid", result.error, result.error.details.orEmpty(), clock.now())
                 }
                 is Result.Ok -> when (val normalized = HuaweiRecordNormalizer.normalize(result.value, consent, clock.now())) {
@@ -32,10 +34,17 @@ class SyncHealthDataUseCase(
                     }
                     is Result.Err -> {
                         rejected++
+                        if (firstFailure == null) firstFailure = normalized.error
                         quarantine?.retain("huawei_hybrid", normalized.error, result.value.platformRecordId, clock.now())
                     }
                 }
             }
+        }
+        if (accepted.isEmpty() && firstFailure != null) {
+            val failure = firstFailure ?: DomainError("HEALTH_SYNC_UNKNOWN_FAILURE")
+            audit.append(AuditEvent("HealthSyncFailed", clock.now(), subjectId.value,
+                mapOf("group" to group.id, "error" to failure.code, "rejected" to rejected.toString())))
+            return Result.Err(failure)
         }
         val stored = timeline.append(deduplicateTimeline(accepted))
         if (stored is Result.Ok && nextCursor != null) {
@@ -55,18 +64,31 @@ class DeleteSubjectDataUseCase(
     private val clock: ClockPort,
 ) {
     suspend operator fun invoke(subjectId: SubjectId): Result<DomainError, Unit> {
-        huaweiDataPlan.forEach { consentStore.revoke(subjectId, "health:${it.id}", clock.now()) }
-        consentStore.revoke(subjectId, "manual_health_entry", clock.now())
-        consentStore.revoke(subjectId, "ai_explanation", clock.now())
-        consentStore.revoke(subjectId, "app_function_summary", clock.now())
-        platform.revoke(huaweiDataPlan.mapNotNull { it.scope?.let { scope -> DataScope(it.id, scope) } }.toSet())
-        timeline.tombstone(subjectId)
-        timeline.deleteDerived(subjectId)
+        val failures = mutableListOf<DomainError>()
+        (huaweiDataPlan.map { "health:${it.id}" } + listOf("manual_health_entry", "ai_explanation", "app_function_summary"))
+            .forEach { purpose -> when (val revoked = consentStore.revoke(subjectId, purpose, clock.now())) {
+                is Result.Err -> failures += revoked.error
+                is Result.Ok -> Unit
+            } }
+        when (val revoked = platform.revoke(huaweiDataPlan.map { DataScope(it.id, it.scope) }.toSet())) {
+            is Result.Err -> failures += revoked.error
+            is Result.Ok -> Unit
+        }
+        when (val tombstoned = timeline.tombstone(subjectId)) {
+            is Result.Err -> failures += tombstoned.error
+            is Result.Ok -> Unit
+        }
+        when (val deleted = timeline.deleteDerived(subjectId)) {
+            is Result.Err -> failures += deleted.error
+            is Result.Ok -> Unit
+        }
         val cloudResult = cloud?.deleteSubject(subjectId) ?: Result.Ok(Unit)
+        if (cloudResult is Result.Err) failures += cloudResult.error
         audit.append(AuditEvent("DataDeleted", clock.now(), subjectId.value, mapOf(
             "cloudConfigured" to (cloud != null).toString(),
             "cloudAcknowledged" to (cloudResult is Result.Ok).toString(),
+            "failures" to failures.size.toString(),
         )))
-        return cloudResult
+        return failures.firstOrNull()?.let { Result.Err(it) } ?: Result.Ok(Unit)
     }
 }

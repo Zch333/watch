@@ -17,4 +17,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Move25HealthAndroid16"
-include(":domain", ":ports", ":application", ":adapter-android", ":adapter-huawei", ":adapter-ai-android", ":app")
+include(":domain", ":ports", ":application", ":adapter-android", ":adapter-huawei", ":adapter-ai-android", ":contract-tests", ":app")

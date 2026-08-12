@@ -42,7 +42,11 @@ class RoomTimelineStore(
 
     override suspend fun tombstone(subjectId: SubjectId, kinds: Set<ObservationKind>): Result<DomainError, Int> = runCatching {
         val names = kinds.map(ObservationKind::name)
-        Result.Ok(dao.tombstoneObservations(subjectId.value, names.ifEmpty { listOf("") }, if (kinds.isEmpty()) 1 else 0, nowEpochMs()))
+        val at = nowEpochMs()
+        val deleted = dao.tombstoneObservations(subjectId.value, names.ifEmpty { listOf("") }, if (kinds.isEmpty()) 1 else 0, at)
+        dao.appendTombstone(TombstoneEntity("tombstone:${UUID.randomUUID()}", subjectId.value,
+            names.sorted().joinToString(",").ifBlank { "*" }, at, null))
+        Result.Ok(deleted)
     }.getOrElse { Result.Err(DomainError("LOCAL_TOMBSTONE_FAILED", it.message)) }
 
     override suspend fun deleteDerived(subjectId: SubjectId): Result<DomainError, Unit> = runCatching {
