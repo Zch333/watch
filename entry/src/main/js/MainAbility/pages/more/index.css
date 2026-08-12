@@ -15,9 +15,9 @@
 }
 .item {
   width: 100%;
-  height: 56px;
-  margin-top: 8px;
-  font-size: 20px;
+  height: 48px;
+  margin-top: 5px;
+  font-size: 18px;
   background-color: #2a2a2e;
   color: #ffffff;
 }

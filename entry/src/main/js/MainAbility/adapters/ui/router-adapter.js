@@ -7,7 +7,8 @@ const ROUTE_TO_URI = {
     'break-due': 'pages/break-due/index',
     'break-active': 'pages/break-active/index',
     'settings': 'pages/settings/index',
-    'diagnostics': 'pages/diagnostics/index'
+    'diagnostics': 'pages/diagnostics/index',
+    'health-monitoring': 'pages/health-monitoring/index'
 };
 
 export function createRouterAdapter() {

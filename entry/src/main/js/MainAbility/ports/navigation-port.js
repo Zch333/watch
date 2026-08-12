@@ -5,7 +5,8 @@
  *
  * navigate(route) -> Result<NavigationError, Unit>
  *
- * route is one of: 'home' | 'break-due' | 'break-active' | 'settings' | 'diagnostics'
+ * route is one of: 'home' | 'break-due' | 'break-active' | 'settings' |
+ * 'diagnostics' | 'health-monitoring'
  * The adapter translates routes to page paths; in host tests a recorder is used.
  */
 
