@@ -20,6 +20,7 @@ data class RawPlatformRecord(
     val apiName: String,
     val apiVersion: String,
     val syncedAtEpochMs: Long,
+    val nextCursor: String? = null,
 )
 data class PlatformChange(val record: RawPlatformRecord, val supersedesPlatformRecordId: String?)
 data class AuthorizationResult(val granted: Set<DataScope>, val denied: Set<DataScope>)
@@ -112,6 +113,10 @@ interface ExportPort {
 data class ExportArtifact(val displayName: String, val mimeType: String, val bytes: ByteArray)
 
 interface CloudDeletionPort { suspend fun deleteSubject(subjectId: SubjectId): Result<DomainError, Unit> }
+interface QuarantinePort {
+    suspend fun retain(source: String, reason: DomainError, encryptedPayloadCandidate: String, at: InstantMs): Result<DomainError, Unit>
+    suspend fun purgeExpired(at: InstantMs): Result<DomainError, Int>
+}
 interface SyncCursorPort {
     suspend fun read(source: String, dataType: String, subjectId: SubjectId): SyncCursor?
     suspend fun write(cursor: SyncCursor): Result<DomainError, Unit>

@@ -55,6 +55,20 @@ fun validateWatchEnvelope(envelope: WatchEnvelope, lastSequence: Long?): Result<
     return Result.Ok(envelope)
 }
 
+fun createWatchEnvelope(
+    messageId: String,
+    sessionId: String?,
+    sequence: Long,
+    type: WatchMessageType,
+    sentAtEpochMs: Long,
+    payloadJson: String,
+): Result<DomainError, WatchEnvelope> {
+    if (messageId.isBlank() || sequence < 0 || sentAtEpochMs <= 0) return Result.Err(DomainError("WATCH_ENVELOPE_IDENTITY_INVALID"))
+    if (payloadJson.toByteArray().size > 960) return Result.Err(DomainError("WEAR_ENGINE_MESSAGE_TOO_LARGE"))
+    return Result.Ok(WatchEnvelope(1, messageId, sessionId, sequence, type, sentAtEpochMs, payloadJson,
+        checksumFor(1, messageId, sessionId, sequence, type, sentAtEpochMs, payloadJson)))
+}
+
 data class BufferedSample(val sequence: Long, val payload: String, val checksum: String)
 
 class ImmutableRingBuffer private constructor(private val capacity: Int, val items: List<BufferedSample>) {

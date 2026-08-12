@@ -11,22 +11,36 @@ class SyncHealthDataUseCase(
     private val cursors: SyncCursorPort,
     private val clock: ClockPort,
     private val audit: AuditPort,
+    private val quarantine: QuarantinePort? = null,
 ) {
     suspend operator fun invoke(subjectId: SubjectId, group: HuaweiDataGroup, interval: TimeInterval): Result<DomainError, AppendResult> {
         val consent = consents.activeConsent(subjectId, "health:${group.id}") ?: return Result.Err(DomainError("CONSENT_REQUIRED", group.id))
         val cursor = cursors.read("huawei_hybrid", group.id, subjectId)
         val accepted = mutableListOf<Observation>()
         var rejected = 0
+        var nextCursor: String? = null
         platform.read(ReadRequest(subjectId, group.kinds, interval, cursor)).collect { result ->
             when (result) {
-                is Result.Err -> rejected++
+                is Result.Err -> {
+                    rejected++
+                    quarantine?.retain("huawei_hybrid", result.error, result.error.details.orEmpty(), clock.now())
+                }
                 is Result.Ok -> when (val normalized = HuaweiRecordNormalizer.normalize(result.value, consent, clock.now())) {
-                    is Result.Ok -> accepted += normalized.value
-                    is Result.Err -> rejected++
+                    is Result.Ok -> {
+                        accepted += normalized.value
+                        result.value.nextCursor?.let { nextCursor = it }
+                    }
+                    is Result.Err -> {
+                        rejected++
+                        quarantine?.retain("huawei_hybrid", normalized.error, result.value.platformRecordId, clock.now())
+                    }
                 }
             }
         }
         val stored = timeline.append(deduplicateTimeline(accepted))
+        if (stored is Result.Ok && nextCursor != null) {
+            cursors.write(SyncCursor("huawei_hybrid", group.id, subjectId, nextCursor!!, clock.now()))
+        }
         audit.append(AuditEvent("HealthSyncCompleted", clock.now(), subjectId.value, mapOf("group" to group.id, "accepted" to accepted.size.toString(), "rejected" to rejected.toString())))
         return stored
     }
