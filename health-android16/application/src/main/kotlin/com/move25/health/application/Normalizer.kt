@@ -2,6 +2,7 @@ package com.move25.health.application
 
 import com.move25.health.domain.*
 import com.move25.health.ports.RawPlatformRecord
+import kotlinx.serialization.json.*
 
 object HuaweiRecordNormalizer {
     fun normalize(record: RawPlatformRecord, consentId: ConsentId, now: InstantMs): Result<DomainError, Observation> {
@@ -31,7 +32,23 @@ object HuaweiRecordNormalizer {
     private fun parseValue(kind: ObservationKind, raw: String): ObservationValue? {
         val scalar = raw.trim().toDoubleOrNull()
         if (scalar != null) return ObservationValue.Scalar(scalar)
-        if (kind == ObservationKind.GPS_ROUTE) return null // Route JSON is parsed only by the native ACL mapper.
+        val json = runCatching { Json.parseToJsonElement(raw) }.getOrNull()
+        if (kind == ObservationKind.GPS_ROUTE && json is JsonArray) return ObservationValue.Route(json.mapNotNull { element ->
+            val point = element as? JsonObject ?: return@mapNotNull null
+            RoutePoint(point["epochMs"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null,
+                point["latitude"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                point["longitude"]?.jsonPrimitive?.doubleOrNull ?: return@mapNotNull null,
+                point["altitudeM"]?.jsonPrimitive?.doubleOrNull)
+        })
+        if (kind == ObservationKind.EXTERNAL_BLOOD_PRESSURE && json is JsonObject) {
+            val systolic = json["systolic"]?.jsonPrimitive?.doubleOrNull
+            val diastolic = json["diastolic"]?.jsonPrimitive?.doubleOrNull
+            if (systolic != null && diastolic != null) return ObservationValue.BloodPressure(systolic, diastolic)
+        }
+        if (json is JsonObject && json["values"] is JsonArray) return ObservationValue.Series(
+            json["values"]!!.jsonArray.mapNotNull { it.jsonPrimitive.doubleOrNull },
+            json["sampleRateHz"]?.jsonPrimitive?.doubleOrNull,
+        )
         if (kind in setOf(ObservationKind.SLEEP_STAGE_VENDOR, ObservationKind.MOOD, ObservationKind.MENSTRUAL_CYCLE, ObservationKind.WEAR_STATE)) {
             return raw.trim().takeIf { it.isNotBlank() }?.let(ObservationValue::Category)
         }

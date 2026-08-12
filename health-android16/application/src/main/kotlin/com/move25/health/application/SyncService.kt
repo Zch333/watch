@@ -49,18 +49,24 @@ class SyncHealthDataUseCase(
 class DeleteSubjectDataUseCase(
     private val platform: PlatformHealthPort,
     private val timeline: TimelineStorePort,
-    private val cloud: CloudDeletionPort,
+    private val cloud: CloudDeletionPort?,
     private val consentStore: ConsentStorePort,
     private val audit: AuditPort,
     private val clock: ClockPort,
 ) {
     suspend operator fun invoke(subjectId: SubjectId): Result<DomainError, Unit> {
         huaweiDataPlan.forEach { consentStore.revoke(subjectId, "health:${it.id}", clock.now()) }
+        consentStore.revoke(subjectId, "manual_health_entry", clock.now())
+        consentStore.revoke(subjectId, "ai_explanation", clock.now())
+        consentStore.revoke(subjectId, "app_function_summary", clock.now())
         platform.revoke(huaweiDataPlan.mapNotNull { it.scope?.let { scope -> DataScope(it.id, scope) } }.toSet())
         timeline.tombstone(subjectId)
         timeline.deleteDerived(subjectId)
-        val cloudResult = cloud.deleteSubject(subjectId)
-        audit.append(AuditEvent("DataDeleted", clock.now(), subjectId.value, mapOf("cloud" to (cloudResult is Result.Ok).toString())))
+        val cloudResult = cloud?.deleteSubject(subjectId) ?: Result.Ok(Unit)
+        audit.append(AuditEvent("DataDeleted", clock.now(), subjectId.value, mapOf(
+            "cloudConfigured" to (cloud != null).toString(),
+            "cloudAcknowledged" to (cloudResult is Result.Ok).toString(),
+        )))
         return cloudResult
     }
 }

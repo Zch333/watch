@@ -92,3 +92,21 @@ fun deterministicReport(insight: Insight) = DeterministicReport(
     insight.facts.map { "${it.metricId.value}：${it.value} ${it.unit}" },
     insight.actions.map { it.text }, insight.redFlags.map { it.message }, insight.limitations,
 )
+
+fun validateAgentNarrative(text: String, report: DeterministicReport): Result<DomainError, String> {
+    if (text.isBlank()) return Result.Err(DomainError("AGENT_EMPTY_OUTPUT"))
+    val lowered = text.lowercase()
+    prohibitedClaims.firstOrNull { lowered.contains(it.lowercase()) }?.let {
+        return Result.Err(DomainError("AGENT_MEDICAL_CLAIM_REJECTED", it))
+    }
+    val allowedNumbers = report.observations.flatMap { statement ->
+        Regex("-?\\d+(?:\\.\\d+)?").findAll(statement).map { it.value.toDouble() }.toList()
+    }
+    Regex("-?\\d+(?:\\.\\d+)?").findAll(text).map { it.value.toDouble() }.forEach { number ->
+        if (number !in listOf(7.0, 24.0, 30.0) && allowedNumbers.none { kotlin.math.abs(it - number) < 0.0001 || kotlin.math.abs(kotlin.math.round(it) - number) < 0.0001 }) {
+            return Result.Err(DomainError("AGENT_NUMERIC_FACT_CONFLICT", number.toString()))
+        }
+    }
+    if (report.redFlags.isNotEmpty() && report.redFlags.none(text::contains)) return Result.Err(DomainError("AGENT_RED_FLAG_OMITTED"))
+    return Result.Ok(text)
+}

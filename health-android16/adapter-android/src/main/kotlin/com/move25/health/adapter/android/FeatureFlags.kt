@@ -20,12 +20,15 @@ class AndroidFeatureFlags(
     private val userKey = booleanPreferencesKey("user_enabled")
     private val aiKey = booleanPreferencesKey("ai_enabled")
     private val researchKey = booleanPreferencesKey("research_user_enabled")
+    private val appFunctionsKey = booleanPreferencesKey("app_functions_enabled")
 
     override fun observeUserEnabled(): Flow<Boolean> = store.data.map { it[userKey] ?: false }
     override fun observeAiEnabled(): Flow<Boolean> = store.data.map { it[aiKey] ?: false }
     override fun observeResearchEnabled(): Flow<Boolean> = store.data.map { researchReleaseEnabled && (it[researchKey] ?: false) }
+    override fun observeAppFunctionsEnabled(): Flow<Boolean> = store.data.map { it[appFunctionsKey] ?: false }
     override suspend fun setUserEnabled(enabled: Boolean): Result<DomainError, Unit> = update(userKey, enabled)
     override suspend fun setAiEnabled(enabled: Boolean): Result<DomainError, Unit> = update(aiKey, enabled)
+    override suspend fun setAppFunctionsEnabled(enabled: Boolean): Result<DomainError, Unit> = update(appFunctionsKey, enabled)
 
     private suspend fun update(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, value: Boolean): Result<DomainError, Unit> =
         runCatching { store.edit { it[key] = value }; Result.Ok(Unit) }

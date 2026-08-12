@@ -8,6 +8,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":ports"))
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit.jupiter)
 }
 

@@ -22,6 +22,7 @@ class BuiltInAlgorithmAdapter : AlgorithmPort {
         definition("workout", setOf(ObservationKind.WORKOUT_DURATION), "运动总量"),
         definition("gps_route", setOf(ObservationKind.GPS_ROUTE), "轨迹距离与配速"),
         definition("respiration", setOf(ObservationKind.RESPIRATORY_RATE), "呼吸率趋势"),
+        definition("vo2max", setOf(ObservationKind.VO2MAX_VENDOR), "平台 VO2max 趋势"),
     )
 
     override fun definitions(): List<AlgorithmDefinition> = cards

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Move25 健康</string>
+    <string name="app_function_app_description">仅在用户同意与全部健康发布门禁通过后提供确定性聚合健康摘要；不提供原始信号、身份、诊断、用药、授权、设备控制或删除能力。</string>
+    <string name="app_function_app_display_description">向系统智能服务提供经确定性算法验证的健康管理摘要，不提供原始数据或医疗诊断。</string>
+</resources>

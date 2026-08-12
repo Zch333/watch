@@ -33,6 +33,17 @@ interface PlatformHealthPort {
     suspend fun revoke(scopes: Set<DataScope>): Result<DomainError, Unit>
 }
 
+data class RealtimeHeartRateRequest(
+    val subjectId: SubjectId,
+    val sessionId: String,
+    val maximumDurationSeconds: Int,
+    val consentId: ConsentId,
+)
+data class RealtimeHeartRateSample(val sessionId: String, val epochMs: Long, val beatsPerMinute: Double, val confidence: Int?)
+interface RealtimeHeartRatePort {
+    fun observe(request: RealtimeHeartRateRequest): Flow<Result<DomainError, RealtimeHeartRateSample>>
+}
+
 data class WearableDevice(
     val idPseudonym: String,
     val name: String,
@@ -95,6 +106,8 @@ interface FeatureFlagPort {
     fun observeAiEnabled(): Flow<Boolean>
     suspend fun setAiEnabled(enabled: Boolean): Result<DomainError, Unit>
     fun observeResearchEnabled(): Flow<Boolean>
+    fun observeAppFunctionsEnabled(): Flow<Boolean>
+    suspend fun setAppFunctionsEnabled(enabled: Boolean): Result<DomainError, Unit>
 }
 
 interface ClockPort { fun now(): InstantMs }
@@ -103,6 +116,22 @@ interface AuditPort { suspend fun append(event: AuditEvent): Result<DomainError,
 data class AuditEvent(val type: String, val at: InstantMs, val subjectPseudonym: String?, val metadata: Map<String, String>)
 
 interface AiInferencePort { suspend fun complete(envelope: AiEnvelope): Result<DomainError, UntrustedAiOutput> }
+data class AgentRequest(
+    val sessionId: String,
+    val subjectId: SubjectId,
+    val prompt: String,
+    val verifiedReport: DeterministicReport,
+    val locale: String,
+)
+data class AgentChunk(val text: String, val partial: Boolean, val model: String)
+interface LocalAgentPort {
+    suspend fun capability(): Capability
+    fun stream(request: AgentRequest): Flow<Result<DomainError, AgentChunk>>
+}
+interface CloudAgentPort {
+    suspend fun capability(): Capability
+    fun stream(request: AgentRequest): Flow<Result<DomainError, AgentChunk>>
+}
 interface NotificationPort { suspend fun publish(notification: HealthNotification): Result<DomainError, Unit> }
 data class HealthNotification(val id: String, val title: String, val body: String, val redFlag: Boolean)
 

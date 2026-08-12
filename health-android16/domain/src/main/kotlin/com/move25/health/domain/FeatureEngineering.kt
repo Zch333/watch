@@ -131,6 +131,13 @@ fun computeRespirationMetrics(inputs: List<Observation>, interval: TimeInterval)
     else listOf(metricFrom("respiration_median", median(values.map { it.second }), UnitCode.COUNT, values.map { it.first }, interval, "respiration-median", EvidenceGrade.E0_VENDOR_UNVERIFIED))
 }
 
+fun computeVo2MaxMetrics(inputs: List<Observation>, interval: TimeInterval): List<Result<DomainError, DerivedMetric>> {
+    val values = qualifiedScalars(inputs, ObservationKind.VO2MAX_VENDOR)
+    return if (values.isEmpty()) listOf(Result.Err(DomainError("NO_VO2MAX_INPUTS")))
+    else listOf(metricFrom("vo2max_vendor_median", median(values.map { it.second }), UnitCode.MILLILITER_PER_KILOGRAM_MINUTE,
+        values.map { it.first }, interval, "vendor-vo2max-median", EvidenceGrade.E0_VENDOR_UNVERIFIED))
+}
+
 fun computeRecoveryIndex(metrics: List<DerivedMetric>, interval: TimeInterval): Result<DomainError, DerivedMetric> {
     val usable = metrics.filter { it.quality !is DataQuality.Rejected }
     val hr = usable.lastOrNull { it.metricId.value == "resting_heart_rate" }
@@ -164,6 +171,7 @@ fun computeFeatureGroup(groupId: String, inputs: List<Observation>, interval: Ti
     "workout" -> computeWorkoutMetrics(inputs, interval) + listOf(computeTrainingLoad(inputs, interval), computeHeartRateRecovery(inputs, interval))
     "gps_route" -> computeRouteMetrics(inputs, interval)
     "respiration" -> computeRespirationMetrics(inputs, interval)
+    "vo2max" -> computeVo2MaxMetrics(inputs, interval)
     "hrv" -> listOf(computeRmssd(inputs, interval, false))
     "prv" -> listOf(computeRmssd(inputs, interval, true))
     else -> listOf(Result.Err(DomainError("UNKNOWN_FEATURE_GROUP", groupId)))

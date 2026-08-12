@@ -20,6 +20,8 @@ val huaweiDataPlan = listOf(
     HuaweiDataGroup("stress", setOf(ObservationKind.STRESS_VENDOR), SyncChannel.NEAR_REALTIME, null, "approved_huawei_catalog", "required", "P1"),
     HuaweiDataGroup("hrv", setOf(ObservationKind.HRV_VENDOR, ObservationKind.RRI), SyncChannel.PERIODIC, "https://www.huawei.com/healthkit/hearthealth.read", "explicit_health_md", "advanced", "P0_HIGHEST_RISK"),
     HuaweiDataGroup("temperature", setOf(ObservationKind.SKIN_TEMPERATURE, ObservationKind.BODY_TEMPERATURE), SyncChannel.PERIODIC, null, "approved_huawei_catalog", "required", "P1"),
+    HuaweiDataGroup("respiration", setOf(ObservationKind.RESPIRATORY_RATE), SyncChannel.PERIODIC, null, "approved_huawei_catalog", "required", "P1"),
+    HuaweiDataGroup("vo2max", setOf(ObservationKind.VO2MAX_VENDOR), SyncChannel.PERIODIC, null, "approved_huawei_catalog", "required", "P1"),
     HuaweiDataGroup("workout", setOf(ObservationKind.WORKOUT_DURATION, ObservationKind.WORKOUT_DISTANCE, ObservationKind.WORKOUT_PACE, ObservationKind.WORKOUT_SPEED, ObservationKind.WORKOUT_ELEVATION, ObservationKind.WORKOUT_CADENCE, ObservationKind.WORKOUT_CALORIES), SyncChannel.REALTIME, null, "approved_huawei_catalog", "required", "P0"),
     HuaweiDataGroup("gps_route", setOf(ObservationKind.GPS_ROUTE), SyncChannel.PERIODIC, "https://www.huawei.com/healthkit/location.read", "explicit_health_md", "route_policy_review", "P0_HIGHEST_RISK"),
 )
