@@ -3,7 +3,9 @@
 | Planned capability | Implementation | Default/runtime guard | Verification |
 |---|---|---|---|
 | Android-first local ledger | Room entities/stores + Keystore AES-256-GCM | release/user/evidence gate | storage contract + Android instrumentation later |
-| Activity and sedentary | `activity` plan/algorithm | scope + quality | feature tests |
+| Activity and sedentary monitoring | `activity` plan/algorithm + qualified timeline observations | scope + quality + freshness | feature tests + evidence tests |
+| Sedentary reminder | functional aggregate, use cases, DataStore, WorkManager, notification adapter, Compose MVU panel | release/user/evidence + `health:activity` consent + user switch + quiet/snooze/cooldown + notification permission | domain/application tests + source fitness check |
+| Sedentary false-positive control | continuous-bout interval coverage; daily aggregate/missing/stale/rejected data excluded | fail-closed evidence derivation | aggregate rejection + quality/movement tests |
 | Heart rate/RHR | historical algorithm + real-time port | consent, 5-minute live bound | feature + adapter contract |
 | Sleep duration/regularity/stage display | sleep normalizer/algorithm | approved catalog; vendor stage retained | deterministic tests |
 | SpO2 | median/min/threshold count | capability and quality | feature tests |
@@ -26,6 +28,4 @@
 | Export/delete/revoke | JSON/FHIR research export, tombstones, cloud delete port | research consent / explicit confirmation | contract tests |
 | Low power | WorkManager constraints and bounded sessions | no timers/services/passive sensor opens | source fitness check |
 
-`RESEARCH_ONLY` and `REGULATED_ONLY` entries are implemented as truthful domain states and gates,
-not enabled consumer features. Arrhythmia, sleep-apnoea, fall detection and disease/medication
-claims cannot be activated by the normal product switch.
+`RESEARCH_ONLY` and `REGULATED_ONLY` entries are implemented as truthful domain states and gates, not enabled consumer features. Arrhythmia, sleep-apnoea, fall detection, and disease/medication claims cannot be activated by the normal product switch.

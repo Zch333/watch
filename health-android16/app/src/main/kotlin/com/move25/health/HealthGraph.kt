@@ -1,6 +1,7 @@
 package com.move25.health
 
 import com.move25.health.adapter.android.AndroidAdapters
+import com.move25.health.adapter.android.SedentaryAndroidAdapters
 import com.move25.health.domain.ReleaseEvidence
 import com.move25.health.ports.AlgorithmPort
 import com.move25.health.ports.CloudAgentPort
@@ -15,6 +16,7 @@ data class HealthGraph(
     val releaseEnabled: Boolean,
     val releaseEvidence: ReleaseEvidence,
     val android: AndroidAdapters,
+    val sedentary: SedentaryAndroidAdapters,
     val huawei: PlatformHealthPort,
     val realtimeHeartRate: RealtimeHeartRatePort,
     val algorithms: AlgorithmPort,

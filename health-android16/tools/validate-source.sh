@@ -5,11 +5,20 @@ project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
 required=(
   "domain/src/main/kotlin/com/move25/health/domain/Activation.kt"
+  "domain/src/main/kotlin/com/move25/health/domain/SedentaryReminder.kt"
+  "domain/src/test/kotlin/com/move25/health/domain/SedentaryReminderTest.kt"
   "ports/src/main/kotlin/com/move25/health/ports/Ports.kt"
+  "ports/src/main/kotlin/com/move25/health/ports/SedentaryReminderPorts.kt"
   "application/src/main/kotlin/com/move25/health/application/PostSyncAnalysis.kt"
+  "application/src/main/kotlin/com/move25/health/application/SedentaryReminderUseCases.kt"
+  "application/src/test/kotlin/com/move25/health/application/SedentaryReminderUseCasesTest.kt"
+  "adapter-android/src/main/kotlin/com/move25/health/adapter/android/SedentaryPreferences.kt"
+  "adapter-android/src/main/kotlin/com/move25/health/adapter/android/SedentaryWorkScheduling.kt"
   "adapter-huawei/src/main/kotlin/com/move25/health/adapter/huawei/HuaweiNativeClient.kt"
   "adapter-ai-android/src/main/kotlin/com/move25/health/adapter/ai/android/AdkNanoHealthAgent.kt"
+  "app/src/main/kotlin/com/move25/health/ui/Move25AppRoot.kt"
   "app/src/main/kotlin/com/move25/health/appfunctions/HealthAppFunctionService.kt"
+  "docs/SEDENTARY_REMINDERS.md"
   "lite-companion-contract/protocol.js"
 )
 for item in "${required[@]}"; do test -f "$project_dir/$item"; done
@@ -38,13 +47,19 @@ if rg -n '(sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN (RSA |EC |OPENS
   exit 1
 fi
 
-rg -q 'Tool use is unsupported' /dev/null 2>/dev/null || true
 if rg -n 'tools = HealthAgentTools' "$project_dir/adapter-ai-android/src/main/kotlin/com/move25/health/adapter/ai/android/AdkNanoHealthAgent.kt"; then
   echo 'ML Kit ADK route must not declare unsupported tools' >&2
   exit 1
 fi
 rg -q 'MAX_PAYLOAD_BYTES = 960' "$project_dir/lite-companion-contract/protocol.js"
 rg -q 'MAX_WIRE_BYTES = 1024' "$project_dir/lite-companion-contract/protocol.js"
+
+rg -q 'fun decideSedentaryReminder' "$project_dir/domain/src/main/kotlin/com/move25/health/domain/SedentaryReminder.kt"
+rg -q 'fun evolveSedentaryReminder' "$project_dir/domain/src/main/kotlin/com/move25/health/domain/SedentaryReminder.kt"
+rg -q 'MINIMUM_CONTINUOUS_BOUT_COVERAGE' "$project_dir/domain/src/main/kotlin/com/move25/health/domain/SedentaryReminder.kt"
+rg -q 'PeriodicWorkRequestBuilder<SedentaryReminderWorker>(15, TimeUnit.MINUTES)' "$project_dir/adapter-android/src/main/kotlin/com/move25/health/adapter/android/SedentaryWorkScheduling.kt"
+rg -q 'health:activity' "$project_dir/application/src/main/kotlin/com/move25/health/application/SedentaryReminderUseCases.kt"
+rg -q 'POST_NOTIFICATIONS' "$project_dir/app/src/main/AndroidManifest.xml"
 
 while IFS= read -r card; do
   test -f "$project_dir/$card" || { echo "missing algorithm card: $card" >&2; exit 1; }
