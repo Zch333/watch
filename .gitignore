@@ -31,4 +31,5 @@ signingConfigs/
 .appanalyzer
 /.cache/
 /.cache
+/git.md
 .DS_Store

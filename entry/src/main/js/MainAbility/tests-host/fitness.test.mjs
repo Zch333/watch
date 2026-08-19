@@ -114,7 +114,7 @@ test('platform: Lite page entry scripts are self-contained', () => {
             // ignored; config.json is the deploy-page source of truth.
         }
     }
-    assert.equal(pageFiles.length, 6);
+    assert.equal(pageFiles.length, 7);
     for (const file of pageFiles) {
         const source = readRelative(file);
         assert.equal(/(?:from|require\s*\()\s*['"]\.\.?\//.test(source), false,

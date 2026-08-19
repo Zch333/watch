@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppFunctionAppMetadata xmlns:appfn="http://schemas.android.com/apk/androidx.appfunctions"
+    appfn:description="Provides a deterministic, wellness-only summary of qualified Move25 health metrics. Functions are disabled by default and become discoverable only after the release gate, evidence gate, user health switch, and separate AppFunctions switch are all enabled. Raw samples, identity, diagnosis, medication changes, authorization, device control, and deletion are never exposed."
+    appfn:displayDescription="@string/app_function_app_display_description" />

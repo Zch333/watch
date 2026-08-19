@@ -57,8 +57,8 @@ entry/                           # 唯一可运行模块
   build-profile.json5            # 模块级构建配置
   hvigorfile.ts                  # 模块级 Hvigor 任务
   oh-package.json5               # 模块级依赖
-docs/move25_gt6_funar_docs/      # 活跃架构与交付文档（推荐从此开始）
-docs/后续延展，暂不考虑/          # 后续方向草稿（如 HealthWeave），当前版本不纳入实施
+docs/move25_gt6_funar_docs/      # Move25 节律助手的活跃架构与交付文档
+docs/health-monitoring/          # HealthWeave 健康监测开发计划（开发中）
 hvigor/                          # Hvigor 工程配置
 build-profile.json5              # 工程级构建配置
 hvigorfile.ts                    # 工程级 Hvigor 任务
@@ -151,13 +151,13 @@ Project → Rebuild**，确保旧的 `loader_out_lite` 缓存被替换；不应�
 7. `delivery/20_CAPABILITY_PROBE_PLAN.md` — 能力探针计划
 8. `delivery/27_IMPLEMENTATION_ROADMAP.md` — 实施路线图
 
-## 后续延展（暂不考虑）
+## 健康监测开发计划（开发中）
 
-`docs/后续延展，暂不考虑/HealthWeave_GT6_FUNAR_docs/` 是 **HealthWeave GT6** 健康数据平台的早期文档草案，同样采用 FUNAR × Functional DDD × Hexagonal 方法。它面向 HUAWEI WATCH GT 6 上的个人健康与运动数据洞察，不是当前 Move25 v1.0 的实施范围，仅作为后续方向参考。
+`docs/health-monitoring/HealthWeave_GT6_FUNAR_docs/` 是 **HealthWeave GT6** 健康数据平台正在实施的架构与交付计划，同样采用 FUNAR × Functional DDD × Hexagonal 方法。它面向 HUAWEI WATCH GT 6 上的个人健康与运动数据洞察，对应手表侧共享内核 `entry/src/main/js/MainAbility/health-monitoring/` 和 Android 伴随端 `health-android16/`。
 
 其文档体系覆盖产品、证据、领域、架构、算法、AI、交付、ADR、模板与参考资料。完整介绍见该目录下的 `README.md`。
 
-> 注意：HealthWeave 涉及更复杂的健康数据授权、传感器开放能力、云端 AI 解释与跨平台同步；在当前 Move25 尚未完成后台提醒能力探针之前，不纳入开发排期。
+> 注意：进入开发不等于已具备发布证据。健康数据授权、传感器开放能力、云端 AI 与跨平台同步仍受发布开关、用户同意、平台审批、SDK 能力和 GT6 真机证据门禁约束。
 
 ## 提交约定
 

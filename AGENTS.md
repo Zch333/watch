@@ -1,27 +1,35 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Scope, Structure & Sources of Truth
 
-Move25 is a legacy HarmonyOS Lite Wearable FA application for HUAWEI WATCH GT 6. The runnable module is `entry/`; its current UI scaffold lives in `entry/src/main/js/MainAbility/` (`app.js` and `pages/index/`), with images and strings under `entry/src/main/resources/`. The planned implementation keeps dependencies flowing from `domain/` to `workflows/`, `ports/`, `adapters/`, `app/`, and `pages/`, with host tests in `tests-host/`. Root build metadata is in `build-profile.json5`, `hvigorfile.ts`, and `entry/build-profile.json5`. Treat `docs/move25_gt6_funar_docs/` as the active architecture and delivery source; `docs/后续延展，暂不考虑/` is explicitly out of scope.
+Move25 has two active bounded contexts. The Lite Wearable rhythm assistant is under `entry/src/main/js/MainAbility/`: pure rules in `domain/`, contracts in `ports/`, effects in `adapters/`, orchestration in `app/`, screens in `pages/`, and Node tests in `tests-host/`. HealthWeave spans the embedded `health-monitoring/` core and the modular Kotlin/Compose application in `health-android16/`.
 
-## Build, Test, and Development Commands
+Use `docs/move25_gt6_funar_docs/` and `docs/health-monitoring/HealthWeave_GT6_FUNAR_docs/` as design baselines; `docs/status/CURRENT_STATE.md` records evidence. Plans, host tests, and compiled code do not prove device behavior.
 
-- Open the repository in DevEco Studio with Lite SDK 6.1.1 (API 24), select product `default`, and use the `debug` build for emulator/device runs or `release` for packaging.
-- Build, install, sign, and run through DevEco Studio’s built-in Hvigor integration; this repository does not include an `hvigorw` wrapper or npm scripts.
-- Keep dependencies synchronized from `oh-package.json5` and `oh-package-lock.json5`; `@ohos/hypium` 1.0.25 is currently declared for development.
+## Architecture & Change Strategy
 
-## Coding Style & Architecture
+Follow Functional Core + Imperative Shell. Keep scheduling, health rules, thresholds, and transitions pure, immutable, and deterministic. Place storage, clocks, Huawei APIs, network, AI, and navigation behind ports; domain code imports no platform or UI APIs.
 
-Use four spaces in JavaScript/HML and two spaces in CSS, matching the existing scaffold. Prefer small pure functions, ordinary records, immutable updates, tagged ADTs, and explicit `Result` values. `domain/` must not import `@ohos.*`, system APIs, UI code, storage, or the clock; effects belong behind ports and adapters. Do not use `setInterval` or long `setTimeout` for background reminders, and do not assume browser, Node, or modern ArkTS features in Lite JS.
+Keep rhythm and health permissions, consent, data, and workflows separate. Model complex rule or integration changes explicitly; use surgical, style-matching edits for simple UI or configuration work. Never emulate background execution with `setInterval` or long `setTimeout`.
 
-## Testing Guidelines
+## Build, Test & Development Commands
 
-No tests or coverage threshold exist yet. Add deterministic domain/workflow tests under `tests-host/`, using fixed time and in-memory/recording adapters; use Hypium where appropriate. Validate UI behavior in the Lite simulator, but require separate GT6 evidence before claiming background, screen-off, reboot, connectivity, or power behavior.
+- `npm test` — run deterministic Lite host tests.
+- `npm run verify:toolchain` — validate the portable Lite build bridge.
+- `npm run verify:release` — enforce release and security invariants.
+- `cd health-android16 && bash tools/validate-source.sh` — check Android architecture.
+- `cd health-android16 && node --test lite-companion-contract/protocol.test.mjs` — test the watch/phone protocol.
 
-## Commit & Pull Request Guidelines
+Build Lite through DevEco Studio with Lite SDK 6.1.1 (API 24) and product `default`. Use Android Studio for Android builds. No `hvigorw` or Gradle wrapper is committed.
 
-Follow the observed Conventional Commit style with a scope, for example `feat(domain): add schedule policy`, `fix(adapter): preserve semantic key`, or `docs(adr): record decision`. Use `main`, `feature/*`, `adapter/*`, `probe/*`, or `adr/*` branches. PRs should explain intent and affected layers, list build/test evidence, link related work, and include simulator/device screenshots for UI changes.
+## Style, Errors & Testing Evidence
 
-## Security & Configuration
+Use four spaces in JavaScript/HML, two in CSS, and existing Kotlin formatting. Prefer small functions, immutable records, tagged values, explicit `Result` outcomes, kebab-case JavaScript filenames, and `*.test.mjs` tests. Fail fast at effect boundaries; never swallow exceptions. Sanitize errors and log key transitions without secrets or personal data. DevEco rules live in `code-linter.json5`.
 
-Never commit signing keys, certificates, passwords, watch UDIDs, personal-data logs, or build output. Confirm platform APIs against the current Lite SDK and record uncertain device capabilities as probes or ADR-backed evidence.
+Use fixed time and in-memory or recording adapters. No numeric coverage target exists; preserve contract and architecture-fitness tests. Distinguish host/static checks, simulator evidence, and GT6 evidence. Device-behavior claims require device results. Keep health release gates closed until documented evidence exists.
+
+## Change Workflow, Commits & Security
+
+Before editing, read relevant design/status files, inspect `git status`, define success criteria, and preserve unrelated work. Touch only necessary files. Update active documentation when contracts or verified evidence change; record uncertainty as a probe or ADR.
+
+Use scoped Conventional Commits such as `feat(domain): ...`, `fix(adapter): ...`, or `docs(adr): ...`. PRs must state intent, affected boundaries, and verification evidence; include UI screenshots when applicable. Never commit signing material, credentials, watch UDIDs, personal-data logs, secrets, or build output.

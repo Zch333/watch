@@ -6,6 +6,8 @@ import { createSystemHaptics } from '../adapters/device/system-haptics.js';
 import { createUnsupportedReminder } from '../adapters/device/unsupported-reminder.js';
 import { openSystemStore } from '../adapters/device/system-store.js';
 import { createMemoryDiagnostics } from '../adapters/memory/memory-diagnostics.js';
+import { createWatchHealthCompanion } from '../health-monitoring/app/watch-companion.js';
+import { HEALTH_MONITORING_RELEASE_ENABLED } from '../health-monitoring/config/release-gate.js';
 import {
     dispatch as shellDispatch,
     diagnosticsSnapshot as shellDiagnosticsSnapshot,
@@ -28,6 +30,10 @@ import {
 let started = false;
 let ready = false;
 let startError = null;
+const healthCompanion = createWatchHealthCompanion({
+    releaseEnabled: HEALTH_MONITORING_RELEASE_ENABLED,
+    userEnabled: false
+});
 const buildInfo = Object.freeze({
     sdk: typeof __MOVE25_SDK_LABEL__ !== 'undefined' ? __MOVE25_SDK_LABEL__ : 'Lite API 24',
     sha: typeof __MOVE25_BUILD_SHA__ !== 'undefined' ? __MOVE25_BUILD_SHA__ : 'unknown',
@@ -102,6 +108,12 @@ const app = {
         return snapshot
             ? Object.freeze(Object.assign({}, snapshot, { buildInfo: buildInfo }))
             : null;
+    },
+    healthMonitoringStatus() {
+        return healthCompanion.state();
+    },
+    setHealthMonitoringUserEnabled(enabled) {
+        return healthCompanion.setUserEnabled(enabled);
     }
 };
 

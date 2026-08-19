@@ -4,6 +4,7 @@
     <input type="button" class="item" value="暂停一小时" onclick="onPauseHour"></input>
     <input type="button" class="item" value="跳过下一次" onclick="onSkipNext"></input>
     <input type="button" class="item" value="设置" onclick="onSettings"></input>
+    <input type="button" class="item" value="健康监测（未启用）" onclick="onHealthMonitoring"></input>
     <input type="button" class="item" value="诊断" onclick="onDiagnostics"></input>
     <text class="error" show="{{hasError}}">{{errorText}}</text>
 </div>

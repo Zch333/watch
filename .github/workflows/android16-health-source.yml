@@ -1,0 +1,30 @@
+name: Android 16 Health Source
+
+on:
+  push:
+    paths:
+      - 'health-android16/**'
+      - '.github/workflows/android16-health-source.yml'
+  pull_request:
+    paths:
+      - 'health-android16/**'
+      - '.github/workflows/android16-health-source.yml'
+
+jobs:
+  source-fitness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate architecture and dormant release gates
+        run: bash health-android16/tools/validate-source.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test Lite Wearable protocol
+        run: node --test health-android16/lite-companion-contract/protocol.test.mjs
+
+  android-build-deferred:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Intentionally disabled until Android SDK/Huawei approved artifacts are configured.'

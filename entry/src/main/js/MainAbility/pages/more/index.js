@@ -83,6 +83,12 @@ export default {
             app.navigateTo('diagnostics');
         }
     },
+    onHealthMonitoring() {
+        var app = runtime();
+        if (app) {
+            app.navigateTo('health-monitoring');
+        }
+    },
     runAction(message) {
         var app = runtime();
         if (!app || !app.isReady()) {

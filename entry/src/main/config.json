@@ -41,7 +41,8 @@
           "pages/break-due/index",
           "pages/break-active/index",
           "pages/settings/index",
-          "pages/diagnostics/index"
+          "pages/diagnostics/index",
+          "pages/health-monitoring/index"
         ],
         "name": ".MainAbility"
       }

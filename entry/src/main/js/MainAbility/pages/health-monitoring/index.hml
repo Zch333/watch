@@ -1,0 +1,11 @@
+<div class="container">
+    <text class="title">健康监测</text>
+    <text class="badge">{{statusText}}</text>
+    <text class="detail">{{detailText}}</text>
+    <text class="count">规划功能：{{featureCount}} 项</text>
+    <text class="boundary">健康管理与趋势观察，不用于诊断或治疗</text>
+    <input type="button" class="btn-primary" value="{{switchText}}" onclick="onToggleIntent"></input>
+    <text class="hint">总发布开关仍为关闭；此操作不会启动能力</text>
+    <text class="error" show="{{hasError}}">{{errorText}}</text>
+    <input type="button" class="btn" value="返回" onclick="onHome"></input>
+</div>
