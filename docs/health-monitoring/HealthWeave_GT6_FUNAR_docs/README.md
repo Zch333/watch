@@ -5,6 +5,7 @@
 > 目标设备：HUAWEI WATCH GT 6，HarmonyOS 6.1.0 系列固件  
 > 架构方法：Functional Software Architecture（FUNAR）× Functional DDD × Hexagonal Architecture  
 > 产品定位：消费级健康与运动数据的个人洞察平台，不是医疗诊断系统
+> 状态：开发中；发布能力仍受授权、平台审批、SDK 与 GT6 真机证据门禁约束
 
 ## 1. 本文档体系解决什么问题
 

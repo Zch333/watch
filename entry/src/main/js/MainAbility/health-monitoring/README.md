@@ -1,6 +1,6 @@
-# HealthWeave 健康监测扩展
+# HealthWeave 健康监测（开发中）
 
-本目录严格实现 `健康.md` 和 `docs/后续延展，暂不考虑/HealthWeave_GT6_FUNAR_docs/` 的共享健康内核，并保持功能默认休眠。
+本目录严格实现 `健康.md` 和 `docs/health-monitoring/HealthWeave_GT6_FUNAR_docs/` 的共享健康内核。计划已进入开发，但运行功能仍由发布门禁控制并默认休眠。
 
 ## 不可绕过的产品开关
 
