@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
 class WorkflowTest {
-    private val evidence = ReleaseEvidence(true, true, true, true, true, true, true, true)
+    private val evidence = ReleaseEvidence(true, true, true, true, true, true, true, true, true, true)
 
     @Test fun `dormant state refuses every collection effect`() {
         val interval = TimeInterval.of(0, 1).getOrNull()!!

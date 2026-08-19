@@ -28,6 +28,8 @@ android {
         buildConfigField("boolean", "EVIDENCE_FIREBASE_APP_CHECK", "false")
         buildConfigField("boolean", "EVIDENCE_DELETION_EXPORT", "false")
         buildConfigField("boolean", "EVIDENCE_POWER_BUDGET", "false")
+        buildConfigField("boolean", "EVIDENCE_LICENSE_SBOM", "false")
+        buildConfigField("boolean", "EVIDENCE_STORE_CLAIMS", "false")
         buildConfigField("String", "API_BASE_URL", "\"https://invalid.move25.local/\"")
         buildConfigField("String", "HUAWEI_PEER_PACKAGE", "\"\"")
         buildConfigField("String", "HUAWEI_PEER_CERT_SHA256", "\"\"")

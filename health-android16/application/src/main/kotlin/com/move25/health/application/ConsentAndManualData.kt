@@ -48,7 +48,12 @@ class RecordManualObservationUseCase(
     private val allowed = setOf(ObservationKind.MOOD, ObservationKind.MENSTRUAL_CYCLE,
         ObservationKind.EXTERNAL_BLOOD_PRESSURE, ObservationKind.EXTERNAL_BLOOD_GLUCOSE)
 
-    suspend operator fun invoke(subjectId: SubjectId, input: ManualObservationInput): Result<DomainError, Observation> {
+    suspend operator fun invoke(
+        subjectId: SubjectId,
+        input: ManualObservationInput,
+        activation: Activation,
+    ): Result<DomainError, Observation> {
+        if (activation is Activation.Dormant) return Result.Err(DomainError("HEALTH_FEATURE_DORMANT", activation.reason))
         if (input.kind !in allowed) return Result.Err(DomainError("MANUAL_KIND_NOT_ALLOWED"))
         val consent = consents.activeConsent(subjectId, "manual_health_entry")
             ?: return Result.Err(DomainError("MANUAL_ENTRY_CONSENT_REQUIRED"))

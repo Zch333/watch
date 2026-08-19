@@ -48,6 +48,14 @@ class SedentaryReminderTest {
     }
 
     @Test
+    fun `unqualified injected evidence never reaches notification effect`() {
+        val lowQuality = check(settings = enabled, evidence = evidence.copy(qualityScore = 0.2))
+        assertEquals(SedentarySuppressionReason.NO_QUALIFIED_DATA, lowQuality.suppression())
+        assertTrue(decideSedentaryReminder(SedentaryReminderState(), enabled,
+            SedentaryReminderCommand.MarkDelivered(now, 0)) is Result.Err)
+    }
+
+    @Test
     fun `movement cooldown and snooze independently suppress repeats`() {
         val moved = check(settings = enabled, evidence = evidence.copy(activeMinutesAfter = 5))
         assertEquals(SedentarySuppressionReason.RECENT_MOVEMENT, moved.suppression())

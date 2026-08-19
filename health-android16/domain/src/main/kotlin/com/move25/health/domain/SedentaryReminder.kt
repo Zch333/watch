@@ -131,7 +131,7 @@ fun decideSedentaryReminder(
         }
     }
     is SedentaryReminderCommand.MarkDelivered -> {
-        if (command.sedentaryMinutes < 0) {
+        if (command.at.value < 0 || command.sedentaryMinutes <= 0) {
             Result.Err(DomainError("SEDENTARY_MINUTES_INVALID"))
         } else {
             val event = SedentaryReminderEvent.ReminderDelivered(command.at, command.sedentaryMinutes)
@@ -165,6 +165,9 @@ private fun checkSedentaryReminder(
         input.now.value < input.evidence.observedAt.value ||
             input.now.value - input.evidence.observedAt.value > settings.dataFreshnessMinutes * MINUTE_MS ->
             SedentarySuppressionReason.STALE_DATA
+        !input.evidence.qualityScore.isFinite() || input.evidence.qualityScore < MINIMUM_QUALITY_SCORE ||
+            input.evidence.sedentaryMinutes <= 0 || input.evidence.activeMinutesAfter < 0 ->
+            SedentarySuppressionReason.NO_QUALIFIED_DATA
         input.evidence.activeMinutesAfter >= settings.minimumBreakMinutes -> SedentarySuppressionReason.RECENT_MOVEMENT
         input.evidence.sedentaryMinutes < settings.thresholdMinutes -> SedentarySuppressionReason.BELOW_THRESHOLD
         !input.notificationPermissionGranted -> SedentarySuppressionReason.NOTIFICATION_PERMISSION_REQUIRED

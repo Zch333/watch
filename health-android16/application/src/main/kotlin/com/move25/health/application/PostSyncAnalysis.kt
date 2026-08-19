@@ -37,8 +37,16 @@ class AnalyzeSynchronizedDataUseCase(
             is Result.Ok -> Unit
         }
 
-        val recovery = computeRecoveryIndex(outputs, interval).getOrNull()
-        if (recovery != null) metrics.append(listOf(recovery))
+        val recovery = when (val computed = computeRecoveryIndex(outputs, interval)) {
+            is Result.Ok -> when (val stored = metrics.append(listOf(computed.value))) {
+                is Result.Err -> return stored
+                is Result.Ok -> computed.value
+            }
+            is Result.Err -> {
+                skipped["recovery"] = computed.error.code
+                null
+            }
+        }
         val current = (outputs + listOfNotNull(recovery)).distinctBy(DerivedMetric::id)
         val history = when (val result = metrics.query(subjectId, emptySet(), null)) {
             is Result.Ok -> result.value
@@ -46,15 +54,36 @@ class AnalyzeSynchronizedDataUseCase(
         }
         var baselineCount = 0
         val deviations = mutableListOf<Deviation>()
-        history.groupBy(DerivedMetric::metricId).forEach { (_, series) ->
-            val baseline = buildBaseline(series).getOrNull() ?: return@forEach
-            if (metrics.saveBaseline(baseline) is Result.Ok) baselineCount++
+        history.groupBy(DerivedMetric::metricId).forEach { (metricId, series) ->
+            val baseline = when (val built = buildBaseline(series)) {
+                is Result.Ok -> built.value
+                is Result.Err -> {
+                    skipped["baseline:${metricId.value}"] = built.error.code
+                    return@forEach
+                }
+            }
+            when (val stored = metrics.saveBaseline(baseline)) {
+                is Result.Err -> return stored
+                is Result.Ok -> baselineCount++
+            }
             current.lastOrNull { it.metricId == baseline.metricId }?.let { latest ->
-                compareToBaseline(baseline, latest).getOrNull()?.let(deviations::add)
+                when (val compared = compareToBaseline(baseline, latest)) {
+                    is Result.Ok -> deviations += compared.value
+                    is Result.Err -> skipped["deviation:${metricId.value}"] = compared.error.code
+                }
             }
         }
-        val insight = composeInsight(subjectId, current, deviations).getOrNull()
-        val insightStored = insight != null && metrics.saveInsight(insight) is Result.Ok
+        val insight = when (val composed = composeInsight(subjectId, current, deviations)) {
+            is Result.Ok -> composed.value
+            is Result.Err -> {
+                skipped["insight"] = composed.error.code
+                null
+            }
+        }
+        val insightStored = if (insight == null) false else when (val stored = metrics.saveInsight(insight)) {
+            is Result.Err -> return stored
+            is Result.Ok -> true
+        }
         return Result.Ok(AnalysisSummary(current.size, baselineCount, insightStored, skipped))
     }
 }

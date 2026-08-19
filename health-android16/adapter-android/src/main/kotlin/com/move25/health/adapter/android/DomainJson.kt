@@ -50,18 +50,29 @@ internal object DomainJson {
         val root = JSONObject().put("score", value.score).put("state", when (value) {
             is DataQuality.Good -> "good"; is DataQuality.Degraded -> "degraded"; is DataQuality.Rejected -> "rejected"
         })
+        val dimensions = when (value) {
+            is DataQuality.Good -> value.dimensions
+            is DataQuality.Degraded -> value.dimensions
+            is DataQuality.Rejected -> emptyMap()
+        }
         val issues = when (value) {
             is DataQuality.Good -> emptyList(); is DataQuality.Degraded -> value.issues; is DataQuality.Rejected -> value.issues
         }
-        return root.put("issues", JSONArray(issues.map { JSONObject().put("dimension", it.dimension.name).put("code", it.code).put("detail", it.description) })).toString()
+        return root.put("dimensions", JSONObject(dimensions.mapKeys { it.key.name }))
+            .put("issues", JSONArray(issues.map { JSONObject().put("dimension", it.dimension.name).put("code", it.code).put("detail", it.description) }))
+            .toString()
     }
 
     fun quality(raw: String): DataQuality {
         val json = JSONObject(raw)
         val issues = json.getJSONArray("issues").objects().map { QualityIssue(QualityDimension.valueOf(it.getString("dimension")), it.getString("code"), it.getString("detail")) }
+        val dimensionsJson = json.optJSONObject("dimensions") ?: JSONObject()
+        val dimensions = dimensionsJson.keys().asSequence().associate { key ->
+            QualityDimension.valueOf(key) to dimensionsJson.getDouble(key)
+        }
         return when (json.getString("state")) {
-            "good" -> DataQuality.Good(json.getDouble("score"), emptyMap())
-            "degraded" -> DataQuality.Degraded(json.getDouble("score"), emptyMap(), issues)
+            "good" -> DataQuality.Good(json.getDouble("score"), dimensions)
+            "degraded" -> DataQuality.Degraded(json.getDouble("score"), dimensions, issues)
             else -> DataQuality.Rejected(issues)
         }
     }

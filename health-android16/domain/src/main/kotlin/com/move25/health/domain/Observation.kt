@@ -61,22 +61,110 @@ data class Observation(
     val supersedes: ObservationId? = null,
 )
 
+private fun allowedUnits(kind: ObservationKind): Set<UnitCode> = when (kind) {
+    ObservationKind.HEART_RATE, ObservationKind.RESTING_HEART_RATE -> setOf(UnitCode.BPM)
+    ObservationKind.RRI, ObservationKind.PPG_INTERVAL, ObservationKind.HRV_VENDOR -> setOf(UnitCode.MILLISECOND)
+    ObservationKind.SPO2 -> setOf(UnitCode.PERCENT)
+    ObservationKind.RESPIRATORY_RATE -> setOf(UnitCode.COUNT)
+    ObservationKind.SKIN_TEMPERATURE, ObservationKind.BODY_TEMPERATURE -> setOf(UnitCode.CELSIUS)
+    ObservationKind.STEP_COUNT -> setOf(UnitCode.COUNT)
+    ObservationKind.ACTIVE_MINUTES, ObservationKind.SEDENTARY_MINUTES,
+    ObservationKind.SLEEP_DURATION, ObservationKind.SLEEP_START_MINUTE,
+    ObservationKind.SLEEP_END_MINUTE, ObservationKind.WORKOUT_DURATION -> setOf(UnitCode.MINUTE)
+    ObservationKind.STRESS_VENDOR, ObservationKind.MOOD -> setOf(UnitCode.SCORE)
+    ObservationKind.SLEEP_STAGE_VENDOR, ObservationKind.MENSTRUAL_CYCLE,
+    ObservationKind.WEAR_STATE, ObservationKind.PPG_RAW -> setOf(UnitCode.UNITLESS)
+    ObservationKind.WORKOUT_DISTANCE -> setOf(UnitCode.KILOMETER)
+    ObservationKind.WORKOUT_PACE -> setOf(UnitCode.MINUTE_PER_KILOMETER)
+    ObservationKind.WORKOUT_SPEED -> setOf(UnitCode.METER_PER_SECOND)
+    ObservationKind.WORKOUT_ELEVATION -> setOf(UnitCode.METER)
+    ObservationKind.WORKOUT_CADENCE -> setOf(UnitCode.COUNT)
+    ObservationKind.WORKOUT_CALORIES -> setOf(UnitCode.KCAL)
+    ObservationKind.GPS_ROUTE -> setOf(UnitCode.UNITLESS, UnitCode.METER, UnitCode.KILOMETER)
+    ObservationKind.VO2MAX_VENDOR -> setOf(UnitCode.MILLILITER_PER_KILOGRAM_MINUTE)
+    ObservationKind.EXTERNAL_BLOOD_PRESSURE -> setOf(UnitCode.MILLIMETER_MERCURY)
+    ObservationKind.EXTERNAL_BLOOD_GLUCOSE -> setOf(UnitCode.MILLIMOLE_PER_LITER)
+    ObservationKind.ACCELEROMETER -> setOf(UnitCode.METER_PER_SECOND_SQUARED)
+    ObservationKind.GYROSCOPE -> setOf(UnitCode.RADIAN_PER_SECOND)
+    ObservationKind.ECG_RAW -> setOf(UnitCode.VOLT)
+}
+
+private fun expectedValueType(kind: ObservationKind, value: ObservationValue): Boolean = when (kind) {
+    ObservationKind.GPS_ROUTE -> value is ObservationValue.Route
+    ObservationKind.EXTERNAL_BLOOD_PRESSURE -> value is ObservationValue.BloodPressure
+    ObservationKind.SLEEP_STAGE_VENDOR, ObservationKind.MOOD,
+    ObservationKind.MENSTRUAL_CYCLE, ObservationKind.WEAR_STATE -> value is ObservationValue.Category
+    ObservationKind.ACCELEROMETER, ObservationKind.GYROSCOPE,
+    ObservationKind.PPG_RAW, ObservationKind.ECG_RAW -> value is ObservationValue.Series
+    ObservationKind.RRI, ObservationKind.PPG_INTERVAL ->
+        value is ObservationValue.Scalar || value is ObservationValue.Series
+    else -> value is ObservationValue.Scalar
+}
+
+private fun scalarSemanticsValid(kind: ObservationKind, number: Double): Boolean {
+    if (!number.isFinite()) return false
+    return when (kind) {
+        ObservationKind.HEART_RATE, ObservationKind.RESTING_HEART_RATE -> number in 20.0..260.0
+        ObservationKind.RRI, ObservationKind.PPG_INTERVAL -> number in 250.0..2_200.0
+        ObservationKind.HRV_VENDOR -> number in 0.0..500.0
+        ObservationKind.SPO2 -> number in 0.0..100.0
+        ObservationKind.RESPIRATORY_RATE -> number in 2.0..80.0
+        ObservationKind.SKIN_TEMPERATURE, ObservationKind.BODY_TEMPERATURE -> number in 20.0..45.0
+        ObservationKind.STEP_COUNT -> number in 0.0..500_000.0
+        ObservationKind.ACTIVE_MINUTES, ObservationKind.SEDENTARY_MINUTES,
+        ObservationKind.SLEEP_DURATION -> number in 0.0..1_440.0
+        ObservationKind.SLEEP_START_MINUTE, ObservationKind.SLEEP_END_MINUTE -> number >= 0.0 && number < 1_440.0
+        ObservationKind.STRESS_VENDOR -> number in 0.0..100.0
+        ObservationKind.WORKOUT_DURATION -> number in 0.0..1_440.0
+        ObservationKind.WORKOUT_DISTANCE, ObservationKind.WORKOUT_PACE,
+        ObservationKind.WORKOUT_SPEED, ObservationKind.WORKOUT_CADENCE,
+        ObservationKind.WORKOUT_CALORIES -> number >= 0.0
+        ObservationKind.WORKOUT_ELEVATION -> number in -500.0..10_000.0
+        ObservationKind.VO2MAX_VENDOR -> number in 1.0..100.0
+        ObservationKind.EXTERNAL_BLOOD_GLUCOSE -> number in 0.1..50.0
+        else -> true
+    }
+}
+
+private fun qualityValid(quality: DataQuality): Boolean {
+    val dimensions = when (quality) {
+        is DataQuality.Good -> quality.dimensions
+        is DataQuality.Degraded -> quality.dimensions
+        is DataQuality.Rejected -> emptyMap()
+    }
+    return quality.score in 0.0..1.0 && dimensions.values.all { it.isFinite() && it in 0.0..1.0 }
+}
+
 fun validateObservation(item: Observation): Result<DomainError, Observation> {
     if (item.id.value.isBlank() || item.subjectId.value.isBlank()) return Result.Err(DomainError("IDENTITY_REQUIRED"))
-    if (item.provenance.platformRecordId.isBlank() || item.provenance.apiName.isBlank()) return Result.Err(DomainError("PROVENANCE_REQUIRED"))
+    if (item.interval.start.value < 0 || item.interval.endExclusive.value < 0 || item.ingestedAt.value < 0) {
+        return Result.Err(DomainError("OBSERVATION_TIME_INVALID"))
+    }
+    if (item.supersedes == item.id) return Result.Err(DomainError("OBSERVATION_CANNOT_SUPERSEDE_ITSELF"))
+    if (item.provenance.sourcePlatform.isBlank() || item.provenance.sourceApp.isBlank() ||
+        item.provenance.sourceDeviceModel.isBlank() || item.provenance.sourceDeviceIdPseudonym.isBlank() ||
+        item.provenance.platformRecordId.isBlank() || item.provenance.apiName.isBlank() ||
+        item.provenance.apiVersion.isBlank() || item.provenance.originalDataType.isBlank() ||
+        item.provenance.processingChain.any(String::isBlank)
+    ) return Result.Err(DomainError("PROVENANCE_REQUIRED"))
     if (item.consentId.value.isBlank()) return Result.Err(DomainError("CONSENT_REQUIRED"))
+    if (item.unit !in allowedUnits(item.kind)) return Result.Err(DomainError("UNIT_KIND_MISMATCH"))
+    if (!expectedValueType(item.kind, item.value)) return Result.Err(DomainError("VALUE_KIND_MISMATCH"))
+    if (!qualityValid(item.quality)) return Result.Err(DomainError("QUALITY_INVALID"))
     val semanticError = when (val value = item.value) {
-        is ObservationValue.Scalar -> when (item.kind) {
-            ObservationKind.HEART_RATE, ObservationKind.RESTING_HEART_RATE -> value.number !in 20.0..260.0
-            ObservationKind.SPO2 -> value.number !in 0.0..100.0
-            ObservationKind.SKIN_TEMPERATURE, ObservationKind.BODY_TEMPERATURE -> value.number !in 20.0..45.0
-            ObservationKind.STEP_COUNT -> value.number < 0
-            else -> !value.number.isFinite()
-        }
-        is ObservationValue.Series -> value.values.isEmpty() || value.values.any { !it.isFinite() }
-        is ObservationValue.BloodPressure -> value.diastolic <= 0 || value.systolic <= value.diastolic
-        is ObservationValue.Route -> value.points.any { it.latitude !in -90.0..90.0 || it.longitude !in -180.0..180.0 }
-        is ObservationValue.Category -> value.value.isBlank()
+        is ObservationValue.Scalar -> !scalarSemanticsValid(item.kind, value.number)
+        is ObservationValue.Series -> value.values.isEmpty() || value.values.any { sample ->
+            !scalarSemanticsValid(item.kind, sample)
+        } || value.sampleRateHz?.let { !it.isFinite() || it <= 0.0 } == true
+        is ObservationValue.BloodPressure -> !value.systolic.isFinite() || !value.diastolic.isFinite() ||
+            value.systolic !in 30.0..300.0 || value.diastolic !in 20.0..200.0 ||
+            value.systolic <= value.diastolic
+        is ObservationValue.Route -> value.points.isEmpty() || value.points.any {
+            it.epochMs < 0 || !it.latitude.isFinite() || !it.longitude.isFinite() ||
+                it.latitude !in -90.0..90.0 || it.longitude !in -180.0..180.0 ||
+                it.altitudeM?.isFinite() == false
+        } || value.points.zipWithNext().any { (left, right) -> right.epochMs < left.epochMs }
+        is ObservationValue.Category -> value.value.isBlank() || value.value.length > 128
     }
     return if (semanticError) Result.Err(DomainError("SEMANTIC_VALUE_INVALID")) else Result.Ok(item)
 }

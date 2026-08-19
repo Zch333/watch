@@ -1,6 +1,7 @@
 package com.move25.health.domain
 
 import java.security.MessageDigest
+import java.nio.charset.StandardCharsets
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -36,7 +37,7 @@ fun stableInputHash(inputs: List<Observation>): String {
     val canonical = inputs.sortedBy { it.id.value }.joinToString("\n") {
         "${it.id.value}|${it.kind}|${it.interval.start.value}|${it.interval.endExclusive.value}|${it.value}|${it.unit}"
     }
-    return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
+    return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(StandardCharsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
 }
 
@@ -45,8 +46,19 @@ private fun aggregateQuality(inputs: List<Observation>): DataQuality {
         return DataQuality.Rejected(listOf(QualityIssue(QualityDimension.SEMANTIC_VALIDITY, "REJECTED_INPUT", "存在被拒绝的输入")))
     }
     val score = inputs.map { it.quality.score }.average().takeIf { !it.isNaN() } ?: 0.0
-    return if (score >= 0.85) DataQuality.Good(score, emptyMap())
-    else DataQuality.Degraded(score, emptyMap(), listOf(QualityIssue(QualityDimension.COMPLETENESS, "AGGREGATE_DEGRADED", "输入质量部分降级")))
+    val sourceDimensions = inputs.map { input -> when (val quality = input.quality) {
+        is DataQuality.Good -> quality.dimensions
+        is DataQuality.Degraded -> quality.dimensions
+        is DataQuality.Rejected -> emptyMap()
+    } }
+    val dimensions = sourceDimensions.flatMap { it.keys }.toSet().associateWith { dimension ->
+        sourceDimensions.mapNotNull { it[dimension] }.average()
+    }
+    return if (score >= 0.85 && inputs.all { it.quality is DataQuality.Good }) {
+        DataQuality.Good(score, dimensions)
+    } else {
+        DataQuality.Degraded(score, dimensions, listOf(QualityIssue(QualityDimension.COMPLETENESS, "AGGREGATE_DEGRADED", "输入质量部分降级")))
+    }
 }
 
 fun deriveMetric(
@@ -54,6 +66,14 @@ fun deriveMetric(
     interval: TimeInterval, algorithmId: String, version: String, evidence: EvidenceGrade,
 ): Result<DomainError, DerivedMetric> {
     if (inputs.isEmpty()) return Result.Err(DomainError("NO_INPUTS"))
+    if (metricId.isBlank() || algorithmId.isBlank() || version.isBlank() || !value.isFinite()) {
+        return Result.Err(DomainError("METRIC_IDENTITY_OR_VALUE_INVALID"))
+    }
+    if (inputs.map(Observation::subjectId).distinct().size != 1) return Result.Err(DomainError("MIXED_METRIC_SUBJECTS"))
+    if (inputs.any { validateObservation(it) is Result.Err }) return Result.Err(DomainError("INVALID_METRIC_INPUT"))
+    if (inputs.none { it.interval.endExclusive.value >= interval.start.value && it.interval.start.value < interval.endExclusive.value }) {
+        return Result.Err(DomainError("METRIC_INPUT_OUTSIDE_INTERVAL"))
+    }
     val quality = aggregateQuality(inputs)
     if (quality is DataQuality.Rejected) return Result.Err(DomainError("QUALITY_REJECTED"))
     val hash = stableInputHash(inputs)
@@ -61,22 +81,25 @@ fun deriveMetric(
         id = "$metricId:$version:$hash", subjectId = inputs.first().subjectId,
         metricId = MetricId(metricId), value = value, unit = unit, interval = interval,
         algorithm = AlgorithmReference(algorithmId, version, "default", "source"),
-        inputIds = inputs.map { it.id }, quality = quality, uncertainty = null,
+        inputIds = inputs.map { it.id }.distinct().sortedBy { it.value }, quality = quality, uncertainty = null,
         evidence = evidence, provenance = MetricProvenance(hash, "quality/1", "android-or-jvm"),
     ))
 }
 
 fun computeSum(metricId: String, kind: ObservationKind, inputs: List<Observation>, interval: TimeInterval, unit: UnitCode): Result<DomainError, DerivedMetric> {
     val qualified = inputs.filter { it.kind == kind && it.quality !is DataQuality.Rejected }
-    val value = qualified.sumOf { (it.value as? ObservationValue.Scalar)?.number ?: 0.0 }
-    return deriveMetric(metricId, value, unit, qualified, interval, "sum", "1.0.0", EvidenceGrade.E1_ENGINEERING)
+        .mapNotNull { item -> (item.value as? ObservationValue.Scalar)?.number?.let { item to it } }
+    if (qualified.isEmpty()) return Result.Err(DomainError("NO_QUALIFIED_VALUES"))
+    return deriveMetric(metricId, qualified.sumOf { it.second }, unit, qualified.map { it.first }, interval,
+        "sum", "1.0.0", EvidenceGrade.E1_ENGINEERING)
 }
 
 fun computeMedian(metricId: String, kind: ObservationKind, inputs: List<Observation>, interval: TimeInterval, unit: UnitCode): Result<DomainError, DerivedMetric> {
     val qualified = inputs.filter { it.kind == kind && it.quality !is DataQuality.Rejected }
-    val values = qualified.mapNotNull { (it.value as? ObservationValue.Scalar)?.number }
-    if (values.isEmpty()) return Result.Err(DomainError("NO_QUALIFIED_VALUES"))
-    return deriveMetric(metricId, median(values), unit, qualified, interval, "median", "1.0.0", EvidenceGrade.E1_ENGINEERING)
+        .mapNotNull { item -> (item.value as? ObservationValue.Scalar)?.number?.let { item to it } }
+    if (qualified.isEmpty()) return Result.Err(DomainError("NO_QUALIFIED_VALUES"))
+    return deriveMetric(metricId, median(qualified.map { it.second }), unit, qualified.map { it.first }, interval,
+        "median", "1.0.0", EvidenceGrade.E1_ENGINEERING)
 }
 
 fun computeRmssd(inputs: List<Observation>, interval: TimeInterval, ppgDerived: Boolean): Result<DomainError, DerivedMetric> {
@@ -95,7 +118,7 @@ fun computeRmssd(inputs: List<Observation>, interval: TimeInterval, ppgDerived: 
     return deriveMetric(
         if (ppgDerived) "prv_rmssd" else "hrv_rmssd", rmssd, UnitCode.MILLISECOND,
         qualified, interval, if (ppgDerived) "ppg-prv-rmssd" else "rri-hrv-rmssd", "1.0.0",
-        if (ppgDerived) EvidenceGrade.E1_ENGINEERING else EvidenceGrade.E2_DEVICE_VALIDATED,
+        EvidenceGrade.E1_ENGINEERING,
     )
 }
 

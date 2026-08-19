@@ -2,6 +2,7 @@ package com.move25.health.application
 
 import com.move25.health.domain.*
 import com.move25.health.ports.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -24,6 +25,18 @@ fun chooseAgentRoute(input: AgentPolicyInput): AgentRoute = when {
     else -> AgentRoute.DETERMINISTIC_ONLY
 }
 
+fun renderDeterministicReport(report: DeterministicReport): String = buildString {
+    append(report.title)
+    report.observations.forEach { append("\n").append(it) }
+    report.actions.forEach { append("\n建议：").append(it) }
+    report.redFlags.forEach { append("\n").append(it) }
+    report.limitations.forEach { append("\n限制：").append(it) }
+}
+
+private fun deterministicChunk(report: DeterministicReport, reason: String = "policy") = AgentChunk(
+    renderDeterministicReport(report), false, "deterministic-template/1.0.0:$reason",
+)
+
 class RunHealthAgentUseCase(
     private val local: LocalAgentPort,
     private val cloud: CloudAgentPort?,
@@ -35,34 +48,40 @@ class RunHealthAgentUseCase(
         AgentRoute.CLOUD -> cloud?.let { verified(it.stream(request), request.verifiedReport) }
             ?: flow { emit(Result.Err(DomainError("CLOUD_AGENT_NOT_CONFIGURED"))) }
         AgentRoute.DETERMINISTIC_ONLY -> flow {
-            emit(Result.Ok(AgentChunk(
-                buildString {
-                    append(request.verifiedReport.title)
-                    request.verifiedReport.observations.forEach { append("\n").append(it) }
-                    request.verifiedReport.actions.forEach { append("\n建议：").append(it) }
-                    request.verifiedReport.redFlags.forEach { append("\n").append(it) }
-                    request.verifiedReport.limitations.forEach { append("\n限制：").append(it) }
-                }, false, "deterministic-template/1.0.0")))
+            emit(Result.Ok(deterministicChunk(request.verifiedReport)))
         }
     }
 
     private fun verified(source: Flow<Result<DomainError, AgentChunk>>, report: DeterministicReport): Flow<Result<DomainError, AgentChunk>> = flow {
         val accumulated = StringBuilder()
         var model = "unknown"
+        var terminal: AgentChunk? = null
+        var failure: DomainError? = null
         try {
             source.collect { result -> when (result) {
-                is Result.Err -> emit(result)
+                is Result.Err -> if (failure == null) failure = result.error
                 is Result.Ok -> {
+                    if (failure != null || terminal != null) return@collect
                     model = result.value.model
                     if (result.value.partial) accumulated.append(result.value.text)
                     else {
                         val candidate = result.value.text.ifBlank { accumulated.toString() }
-                        emit(validateAgentNarrative(candidate, report).map { AgentChunk(it, false, model) })
+                        when (val validated = validateAgentNarrative(candidate, report)) {
+                            is Result.Ok -> terminal = AgentChunk(validated.value, false, model)
+                            is Result.Err -> failure = validated.error
+                        }
                     }
                 }
             } }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: Throwable) {
-            emit(Result.Err(DomainError("AGENT_ORCHESTRATION_FAILED", failure.message)))
+            this@flow.emit(Result.Ok(deterministicChunk(report, "AGENT_ORCHESTRATION_FAILED")))
+            return@flow
         }
+        emit(Result.Ok(terminal ?: deterministicChunk(
+            report,
+            failure?.code ?: "AGENT_STREAM_INCOMPLETE",
+        )))
     }
 }

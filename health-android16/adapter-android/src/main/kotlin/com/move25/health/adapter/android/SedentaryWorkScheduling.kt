@@ -14,6 +14,7 @@ import androidx.work.workDataOf
 import com.move25.health.domain.DomainError
 import com.move25.health.domain.Result as DomainResult
 import com.move25.health.ports.SedentaryReminderSchedulePort
+import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 
 object SedentaryReminderWorkScheduler {
@@ -52,12 +53,18 @@ class AndroidSedentaryReminderScheduleAdapter(context: Context) : SedentaryRemin
     override fun reconcile(enabled: Boolean): DomainResult<DomainError, Unit> = runCatching {
         SedentaryReminderWorkScheduler.reconcile(applicationContext, enabled)
         DomainResult.Ok(Unit)
-    }.getOrElse { DomainResult.Err(DomainError("SEDENTARY_SCHEDULE_RECONCILE_FAILED", it.message)) }
+    }.getOrElse { failure ->
+        if (failure is CancellationException) throw failure
+        DomainResult.Err(DomainError("SEDENTARY_SCHEDULE_RECONCILE_FAILED"))
+    }
 
     override fun enqueueImmediate(): DomainResult<DomainError, Unit> = runCatching {
         SedentaryReminderWorkScheduler.enqueueImmediate(applicationContext)
         DomainResult.Ok(Unit)
-    }.getOrElse { DomainResult.Err(DomainError("SEDENTARY_SCHEDULE_ENQUEUE_FAILED", it.message)) }
+    }.getOrElse { failure ->
+        if (failure is CancellationException) throw failure
+        DomainResult.Err(DomainError("SEDENTARY_SCHEDULE_ENQUEUE_FAILED"))
+    }
 }
 
 object SedentaryReminderRunnerRegistry {

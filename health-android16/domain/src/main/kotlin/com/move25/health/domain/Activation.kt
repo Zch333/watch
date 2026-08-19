@@ -14,15 +14,31 @@ data class ReleaseEvidence(
     val aiSafetyPassed: Boolean = false,
     val deletionAndExportPassed: Boolean = false,
     val powerBudgetPassed: Boolean = false,
+    val licenseAndSbomApproved: Boolean = false,
+    val storeClaimsReviewed: Boolean = false,
 )
+
+fun missingReleaseEvidence(evidence: ReleaseEvidence): Set<String> = buildSet {
+    if (!evidence.deviceCapabilityConfirmed) add("DEVICE_CAPABILITY")
+    if (!evidence.formalScopesApproved) add("FORMAL_SCOPES")
+    if (!evidence.dataQualityValidated) add("DATA_QUALITY")
+    if (!evidence.algorithmCardsComplete) add("ALGORITHM_CARDS")
+    if (!evidence.privacyImpactComplete) add("PRIVACY_IMPACT")
+    if (!evidence.aiSafetyPassed) add("AI_SAFETY")
+    if (!evidence.deletionAndExportPassed) add("DELETION_EXPORT")
+    if (!evidence.powerBudgetPassed) add("POWER_BUDGET")
+    if (!evidence.licenseAndSbomApproved) add("LICENSE_SBOM")
+    if (!evidence.storeClaimsReviewed) add("STORE_CLAIMS")
+}
 
 fun activationState(releaseEnabled: Boolean, userEnabled: Boolean, evidence: ReleaseEvidence): Activation {
     if (!releaseEnabled) return Activation.Dormant("RELEASE_GATE_DISABLED")
     if (!userEnabled) return Activation.Dormant("USER_SWITCH_OFF")
-    val complete = evidence.deviceCapabilityConfirmed && evidence.formalScopesApproved && evidence.dataQualityValidated &&
-        evidence.algorithmCardsComplete && evidence.privacyImpactComplete && evidence.aiSafetyPassed &&
-        evidence.deletionAndExportPassed && evidence.powerBudgetPassed
-    return if (!complete) Activation.Dormant("RELEASE_EVIDENCE_INCOMPLETE") else Activation.Active(null)
+    return if (missingReleaseEvidence(evidence).isNotEmpty()) {
+        Activation.Dormant("RELEASE_EVIDENCE_INCOMPLETE")
+    } else {
+        Activation.Active(null)
+    }
 }
 
 data class ResearchEvidence(

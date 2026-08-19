@@ -18,6 +18,18 @@ class TimelinePropertyTest {
         assertTrue(validateObservation(item.copy(value = ObservationValue.Scalar(300.0))) is Result.Err)
     }
 
+    @Test fun `unit quality and value type mismatches fail closed`() {
+        val item = observation("one", "platform-1", 10)
+        assertTrue(validateObservation(item.copy(unit = UnitCode.CELSIUS)) is Result.Err)
+        assertTrue(validateObservation(item.copy(value = ObservationValue.Category("70"))) is Result.Err)
+        assertTrue(validateObservation(item.copy(
+            quality = DataQuality.Good(1.5, emptyMap()),
+        )) is Result.Err)
+        assertTrue(validateObservation(item.copy(
+            provenance = item.provenance.copy(sourceDeviceIdPseudonym = ""),
+        )) is Result.Err)
+    }
+
     private fun observation(id: String, platformId: String, ingested: Long) = Observation(
         ObservationId(id), SubjectId("subject"), ObservationKind.HEART_RATE, ObservationValue.Scalar(70.0), UnitCode.BPM,
         TimeInterval.of(100, 100).getOrNull()!!,

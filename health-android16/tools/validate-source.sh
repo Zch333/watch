@@ -29,7 +29,7 @@ done
 grep -q '^MOVE25_HEALTH_RELEASE_ENABLED=false$' "$project_dir/gradle.properties"
 grep -q '^MOVE25_HEALTH_RESEARCH_ENABLED=false$' "$project_dir/gradle.properties"
 evidence_count="$(grep -Ec 'buildConfigField\("boolean", "EVIDENCE_[A-Z_]+", "false"\)' "$project_dir/app/build.gradle.kts" || true)"
-test "$evidence_count" -ge 9
+test "$evidence_count" -ge 11
 grep -R -Fq -- '@AppFunction(isEnabled = false' "$project_dir/app/src/main/kotlin"
 grep -Fq -- 'activation is Activation.Active && userEnabled' "$project_dir/app/src/main/kotlin/com/move25/health/appfunctions/AppFunctionGate.kt"
 grep -Fq -- 'APP_FUNCTION_CONSENT_REQUIRED' "$project_dir/app/src/main/kotlin/com/move25/health/appfunctions/AppFunctionBridge.kt"

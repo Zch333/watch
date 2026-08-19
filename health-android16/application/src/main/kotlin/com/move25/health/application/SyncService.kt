@@ -20,12 +20,18 @@ class SyncHealthDataUseCase(
         var rejected = 0
         var firstFailure: DomainError? = null
         var nextCursor: String? = null
+        var quarantineFailure: DomainError? = null
         platform.read(ReadRequest(subjectId, group.kinds, interval, cursor)).collect { result ->
             when (result) {
                 is Result.Err -> {
                     rejected++
                     if (firstFailure == null) firstFailure = result.error
-                    quarantine?.retain("huawei_hybrid", result.error, result.error.details.orEmpty(), clock.now())
+                    when (val retained = quarantine?.retain(
+                        "huawei_hybrid", result.error, "read-error:${result.error.code}", clock.now(),
+                    )) {
+                        is Result.Err -> if (quarantineFailure == null) quarantineFailure = retained.error
+                        else -> Unit
+                    }
                 }
                 is Result.Ok -> when (val normalized = HuaweiRecordNormalizer.normalize(result.value, consent, clock.now())) {
                     is Result.Ok -> {
@@ -35,23 +41,60 @@ class SyncHealthDataUseCase(
                     is Result.Err -> {
                         rejected++
                         if (firstFailure == null) firstFailure = normalized.error
-                        quarantine?.retain("huawei_hybrid", normalized.error, result.value.platformRecordId, clock.now())
+                        when (val retained = quarantine?.retain(
+                            "huawei_hybrid", normalized.error, result.value.platformRecordId, clock.now(),
+                        )) {
+                            is Result.Err -> if (quarantineFailure == null) quarantineFailure = retained.error
+                            else -> Unit
+                        }
                     }
                 }
             }
         }
+        quarantineFailure?.let { return failed(subjectId, group, rejected, it) }
         if (accepted.isEmpty() && firstFailure != null) {
             val failure = firstFailure ?: DomainError("HEALTH_SYNC_UNKNOWN_FAILURE")
-            audit.append(AuditEvent("HealthSyncFailed", clock.now(), subjectId.value,
-                mapOf("group" to group.id, "error" to failure.code, "rejected" to rejected.toString())))
-            return Result.Err(failure)
+            return failed(subjectId, group, rejected, failure)
         }
-        val stored = timeline.append(deduplicateTimeline(accepted))
-        if (stored is Result.Ok && nextCursor != null) {
-            cursors.write(SyncCursor("huawei_hybrid", group.id, subjectId, nextCursor!!, clock.now()))
+        val stored = when (val result = timeline.append(deduplicateTimeline(accepted))) {
+            is Result.Ok -> result
+            is Result.Err -> return failed(subjectId, group, rejected, result.error)
         }
-        audit.append(AuditEvent("HealthSyncCompleted", clock.now(), subjectId.value, mapOf("group" to group.id, "accepted" to accepted.size.toString(), "rejected" to rejected.toString())))
+        nextCursor?.let { opaqueValue ->
+            when (val written = cursors.write(SyncCursor("huawei_hybrid", group.id, subjectId, opaqueValue, clock.now()))) {
+                is Result.Err -> return failed(subjectId, group, rejected, written.error)
+                is Result.Ok -> Unit
+            }
+        }
+        when (val recorded = audit.append(AuditEvent(
+            "HealthSyncCompleted",
+            clock.now(),
+            subjectId.value,
+            mapOf(
+                "group" to group.id,
+                "accepted" to accepted.size.toString(),
+                "rejected" to rejected.toString(),
+            ),
+        ))) {
+            is Result.Err -> return recorded
+            is Result.Ok -> Unit
+        }
         return stored
+    }
+
+    private suspend fun failed(
+        subjectId: SubjectId,
+        group: HuaweiDataGroup,
+        rejected: Int,
+        failure: DomainError,
+    ): Result<DomainError, AppendResult> = when (val recorded = audit.append(AuditEvent(
+        "HealthSyncFailed",
+        clock.now(),
+        subjectId.value,
+        mapOf("group" to group.id, "error" to failure.code, "rejected" to rejected.toString()),
+    ))) {
+        is Result.Ok -> Result.Err(failure)
+        is Result.Err -> Result.Err(DomainError("HEALTH_SYNC_AND_AUDIT_FAILED", "${failure.code},${recorded.error.code}"))
     }
 }
 
@@ -84,11 +127,14 @@ class DeleteSubjectDataUseCase(
         }
         val cloudResult = cloud?.deleteSubject(subjectId) ?: Result.Ok(Unit)
         if (cloudResult is Result.Err) failures += cloudResult.error
-        audit.append(AuditEvent("DataDeleted", clock.now(), subjectId.value, mapOf(
+        when (val recorded = audit.append(AuditEvent("DataDeleted", clock.now(), subjectId.value, mapOf(
             "cloudConfigured" to (cloud != null).toString(),
             "cloudAcknowledged" to (cloudResult is Result.Ok).toString(),
             "failures" to failures.size.toString(),
-        )))
+        )))) {
+            is Result.Err -> failures += recorded.error
+            is Result.Ok -> Unit
+        }
         return failures.firstOrNull()?.let { Result.Err(it) } ?: Result.Ok(Unit)
     }
 }

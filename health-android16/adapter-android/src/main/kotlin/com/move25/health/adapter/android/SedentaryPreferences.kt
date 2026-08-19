@@ -2,7 +2,6 @@ package com.move25.health.adapter.android
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -15,9 +14,8 @@ import com.move25.health.domain.SedentaryReminderSettings
 import com.move25.health.domain.SedentaryReminderState
 import com.move25.health.ports.SedentaryReminderSettingsPort
 import com.move25.health.ports.SedentaryReminderStatePort
-import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -29,9 +27,6 @@ class AndroidSedentaryReminderStore(context: Context) :
     private val store = context.applicationContext.sedentaryReminderPreferences
 
     override fun observeSettings(): Flow<SedentaryReminderSettings> = store.data
-        .catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
-        }
         .map { preferences ->
             val quietHoursEnabled = preferences[QUIET_HOURS_ENABLED] ?: true
             SedentaryReminderSettings(
@@ -68,12 +63,12 @@ class AndroidSedentaryReminderStore(context: Context) :
                 }
             }
             Result.Ok(Unit)
-        }.getOrElse { Result.Err(DomainError("SEDENTARY_SETTINGS_SAVE_FAILED", it.message)) }
+        }.getOrElse { failure ->
+            if (failure is CancellationException) throw failure
+            Result.Err(DomainError("SEDENTARY_SETTINGS_SAVE_FAILED"))
+        }
 
     override fun observeState(): Flow<SedentaryReminderState> = store.data
-        .catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
-        }
         .map { preferences ->
             SedentaryReminderState(
                 lastDeliveredAt = preferences[LAST_DELIVERED_AT]?.let(::InstantMs),
@@ -97,7 +92,10 @@ class AndroidSedentaryReminderStore(context: Context) :
                 preferences[STATE_REVISION] = state.revision
             }
             Result.Ok(Unit)
-        }.getOrElse { Result.Err(DomainError("SEDENTARY_STATE_SAVE_FAILED", it.message)) }
+        }.getOrElse { failure ->
+            if (failure is CancellationException) throw failure
+            Result.Err(DomainError("SEDENTARY_STATE_SAVE_FAILED"))
+        }
 
     private companion object {
         val ENABLED = booleanPreferencesKey("enabled")

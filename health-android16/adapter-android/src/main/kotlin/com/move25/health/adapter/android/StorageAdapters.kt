@@ -2,15 +2,27 @@ package com.move25.health.adapter.android
 
 import com.move25.health.domain.*
 import com.move25.health.ports.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import java.nio.charset.StandardCharsets
 import java.util.UUID
 
-private fun SensitivePayloadCipher.encryptText(value: String, aad: String) = encrypt(value.toByteArray(), aad.toByteArray())
-private fun SensitivePayloadCipher.decryptText(value: ByteArray, aad: String) = decrypt(value, aad.toByteArray()).decodeToString()
+private fun SensitivePayloadCipher.encryptText(value: String, aad: String) =
+    encrypt(value.toByteArray(StandardCharsets.UTF_8), aad.toByteArray(StandardCharsets.UTF_8))
+private fun SensitivePayloadCipher.decryptText(value: ByteArray, aad: String) =
+    String(decrypt(value, aad.toByteArray(StandardCharsets.UTF_8)), StandardCharsets.UTF_8)
+
+private fun <A> kotlin.Result<Result<DomainError, A>>.sanitized(errorCode: String): Result<DomainError, A> = fold(
+    onSuccess = { it },
+    onFailure = { failure ->
+        if (failure is CancellationException) throw failure
+        Result.Err(DomainError(errorCode))
+    },
+)
 
 class RoomTimelineStore(
     private val dao: HealthDao,
@@ -26,16 +38,16 @@ class RoomTimelineStore(
         }
         val inserted = dao.insertObservations(valid.map(::toEntity)).count { it != -1L }
         Result.Ok(AppendResult(inserted, valid.size - inserted))
-    }.getOrElse { Result.Err(DomainError("LOCAL_APPEND_FAILED", it.message)) }
+    }.sanitized("LOCAL_APPEND_FAILED")
 
     override suspend fun query(query: TimelineQuery): Result<DomainError, List<Observation>> = runCatching {
         Result.Ok(filtered(dao.observeObservations(query.subjectId.value).first(), query))
-    }.getOrElse { Result.Err(DomainError("LOCAL_QUERY_FAILED", it.message)) }
+    }.sanitized("LOCAL_QUERY_FAILED")
 
     override fun observe(query: TimelineQuery): Flow<List<Observation>> = dao.observeObservations(query.subjectId.value).map { entities -> filtered(entities, query) }
 
     private fun filtered(entities: List<ObservationEntity>, query: TimelineQuery): List<Observation> =
-        entities.asSequence().mapNotNull { runCatching { toDomain(it) }.getOrNull() }
+        entities.asSequence().map(::toDomain)
             .filter { item -> query.kinds.isEmpty() || item.kind in query.kinds }
             .filter { item -> query.interval == null || item.interval.endExclusive.value >= query.interval.start.value && item.interval.start.value < query.interval.endExclusive.value }
             .toList()
@@ -47,12 +59,14 @@ class RoomTimelineStore(
         dao.appendTombstone(TombstoneEntity("tombstone:${UUID.randomUUID()}", subjectId.value,
             names.sorted().joinToString(",").ifBlank { "*" }, at, null))
         Result.Ok(deleted)
-    }.getOrElse { Result.Err(DomainError("LOCAL_TOMBSTONE_FAILED", it.message)) }
+    }.sanitized("LOCAL_TOMBSTONE_FAILED")
 
     override suspend fun deleteDerived(subjectId: SubjectId): Result<DomainError, Unit> = runCatching {
-        dao.deleteMetrics(subjectId.value); dao.deleteBaselines(subjectId.value); dao.deleteInsights(subjectId.value)
+        dao.deleteMetrics(subjectId.value)
+        dao.deleteBaselines(subjectId.value)
+        dao.deleteInsights(subjectId.value)
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("LOCAL_DERIVED_DELETE_FAILED", it.message)) }
+    }.sanitized("LOCAL_DERIVED_DELETE_FAILED")
 
     private fun toEntity(item: Observation): ObservationEntity = ObservationEntity(
         item.id.value, item.subjectId.value, item.kind.name, item.unit.name, item.interval.start.value, item.interval.endExclusive.value,
@@ -81,19 +95,18 @@ class RoomMetricStore(private val dao: HealthDao, private val cipher: SensitiveP
                 cipher.encryptText(DomainJson.metricDetail(metric), "metric:${metric.id}"), metric.quality.score)
         })
         Result.Ok(metrics.size)
-    }.getOrElse { Result.Err(DomainError("LOCAL_METRIC_APPEND_FAILED", it.message)) }
+    }.sanitized("LOCAL_METRIC_APPEND_FAILED")
 
     override suspend fun query(subjectId: SubjectId, metricIds: Set<MetricId>, interval: TimeInterval?): Result<DomainError, List<DerivedMetric>> = runCatching {
         Result.Ok(filtered(dao.observeMetrics(subjectId.value).first(), metricIds, interval))
-    }.getOrElse { Result.Err(DomainError("LOCAL_METRIC_QUERY_FAILED", it.message)) }
+    }.sanitized("LOCAL_METRIC_QUERY_FAILED")
 
     override fun observe(subjectId: SubjectId, metricIds: Set<MetricId>, interval: TimeInterval?): Flow<List<DerivedMetric>> =
         dao.observeMetrics(subjectId.value).map { entities -> filtered(entities, metricIds, interval) }
 
     private fun filtered(entities: List<MetricEntity>, metricIds: Set<MetricId>, interval: TimeInterval?): List<DerivedMetric> =
-        entities.mapNotNull { entity ->
-            runCatching { DomainJson.metric(entity, cipher.decryptText(entity.encryptedDetail, "metric:${entity.id}")) }.getOrNull()
-        }.filter { metricIds.isEmpty() || it.metricId in metricIds }
+        entities.map { entity -> DomainJson.metric(entity, cipher.decryptText(entity.encryptedDetail, "metric:${entity.id}")) }
+            .filter { metricIds.isEmpty() || it.metricId in metricIds }
             .filter { interval == null || it.interval.endExclusive.value >= interval.start.value && it.interval.start.value < interval.endExclusive.value }
 
     override suspend fun saveBaseline(baseline: PersonalBaseline): Result<DomainError, Unit> = runCatching {
@@ -103,7 +116,7 @@ class RoomMetricStore(private val dao: HealthDao, private val cipher: SensitiveP
         dao.putBaseline(BaselineEntity(baseline.subjectId.value, baseline.metricId.value, baseline.interval.start.value,
             baseline.interval.endExclusive.value, cipher.encryptText(payload, "baseline:$id"), System.currentTimeMillis()))
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("LOCAL_BASELINE_SAVE_FAILED", it.message)) }
+    }.sanitized("LOCAL_BASELINE_SAVE_FAILED")
 
     override suspend fun saveInsight(insight: Insight): Result<DomainError, Unit> = runCatching {
         val payload = JSONObject().put("confidence", insight.confidence.name)
@@ -114,7 +127,7 @@ class RoomMetricStore(private val dao: HealthDao, private val cipher: SensitiveP
             .put("limitations", JSONArray(insight.limitations)).toString()
         dao.putInsight(InsightEntity(insight.id, insight.subjectId.value, cipher.encryptText(payload, "insight:${insight.id}"), System.currentTimeMillis()))
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("LOCAL_INSIGHT_SAVE_FAILED", it.message)) }
+    }.sanitized("LOCAL_INSIGHT_SAVE_FAILED")
 }
 
 class RoomConsentStore(private val dao: HealthDao, private val cipher: SensitivePayloadCipher) : ConsentStorePort {
@@ -123,11 +136,12 @@ class RoomConsentStore(private val dao: HealthDao, private val cipher: Sensitive
         val scopeJson = JSONArray(scopes.sortedBy { it.id }.map { JSONObject().put("id", it.id).put("platform", it.platformValue) }).toString()
         dao.putConsent(ConsentEntity(id, subjectId.value, purpose, cipher.encryptText(scopeJson, "consent:$id"), at.value, null))
         Result.Ok(ConsentId(id))
-    }.getOrElse { Result.Err(DomainError("CONSENT_GRANT_FAILED", it.message)) }
+    }.sanitized("CONSENT_GRANT_FAILED")
 
     override suspend fun revoke(subjectId: SubjectId, purpose: String, at: InstantMs): Result<DomainError, Unit> = runCatching {
-        dao.revokeConsent(subjectId.value, purpose, at.value); Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("CONSENT_REVOKE_FAILED", it.message)) }
+        dao.revokeConsent(subjectId.value, purpose, at.value)
+        Result.Ok(Unit)
+    }.sanitized("CONSENT_REVOKE_FAILED")
 
     override suspend fun activeConsent(subjectId: SubjectId, purpose: String): ConsentId? = dao.activeConsent(subjectId.value, purpose)?.id?.let(::ConsentId)
 }
@@ -137,7 +151,7 @@ class RoomCapabilityStore(private val dao: HealthDao, private val cipher: Sensit
         val (state, detail) = capability.encode()
         dao.putCapability(CapabilityEntity(id, state, cipher.encryptText(detail, "capability:$id"), observedAt.value))
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("CAPABILITY_SAVE_FAILED", it.message)) }
+    }.sanitized("CAPABILITY_SAVE_FAILED")
 
     override suspend fun get(id: String): Capability = dao.capability(id)?.decode(cipher) ?: Capability.Unknown
     override fun observeAll(): Flow<Map<String, Capability>> = dao.observeCapabilities().map { entities -> entities.associate { it.id to it.decode(cipher) } }
@@ -172,7 +186,7 @@ class RoomCursorStore(private val dao: HealthDao, private val cipher: SensitiveP
         val aad = "cursor:${cursor.source}:${cursor.dataType}:${cursor.subjectId.value}"
         dao.putCursor(CursorEntity(cursor.source, cursor.dataType, cursor.subjectId.value, cipher.encryptText(cursor.opaqueValue, aad), cursor.lastSuccessfulSync.value))
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("CURSOR_SAVE_FAILED", it.message)) }
+    }.sanitized("CURSOR_SAVE_FAILED")
 }
 
 class RoomAudit(private val dao: HealthDao, private val cipher: SensitivePayloadCipher) : AuditPort {
@@ -181,5 +195,5 @@ class RoomAudit(private val dao: HealthDao, private val cipher: SensitivePayload
         dao.appendAudit(AuditEntity(type = event.type, createdAtEpochMs = event.at.value,
             encryptedSubjectAndMetadata = cipher.encryptText(payload, "audit:${event.type}:${event.at.value}")))
         Result.Ok(Unit)
-    }.getOrElse { Result.Err(DomainError("AUDIT_APPEND_FAILED", it.message)) }
+    }.sanitized("AUDIT_APPEND_FAILED")
 }
